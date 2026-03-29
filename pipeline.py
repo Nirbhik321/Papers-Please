@@ -58,7 +58,14 @@ def run(
         extracted_path = Path(extracted_dir) / (Path(pdf_path).stem + ".json")
 
         if not force and extracted_path.exists():
-            print(f"  Skipping {fname} (already extracted)")
+            # JSON cache exists — load from it instead of re-running OCR.
+            # Still re-insert into DB in case the DB was cleared or is fresh.
+            with open(extracted_path, "r") as f:
+                questions = json.load(f)
+            for q in questions:
+                insert_question(db_path, q)
+            print(f"  Loaded {len(questions)} questions from cache: {fname}")
+            all_questions_inserted += len(questions)
             continue
 
         print(f"\n  Processing: {fname}")
@@ -85,7 +92,7 @@ def run(
         for q in questions:
             insert_question(db_path, q)
 
-        # Save extracted JSON for inspection
+        # Save extracted JSON for inspection / future cache
         with open(extracted_path, "w") as f:
             json.dump(questions, f, indent=2)
 
@@ -97,7 +104,7 @@ def run(
     from modules.embedder import encode_questions, reduce_umap, load_question_ids
     from modules.db import get_all_questions
 
-    all_qs = get_all_questions(db_path, canonical_only=False)
+    all_qs = get_all_questions(db_path, canonical_only=True)
     if not all_qs:
         return {"error": "No questions found. Check your PDFs."}
 

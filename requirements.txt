@@ -1,15 +1,31 @@
+# ExamLens — Review 1
+# Python 3.13 compatible
+# Install: pip install -r requirements.txt
+# After install: python -m spacy download en_core_web_sm
 
-streamlit
-numpy
-hdbscan
-tqdm
-sentence-transformers
-umap-learn
-opencv-python
-pdfplumber
-pytesseract
-Pillow
-spacy
-plotly
-pandas
-pyyaml
+# ── PDF & OCR ─────────────────────────────────────────────────────────────────
+pdfplumber>=0.11.4
+pytesseract>=0.3.13
+opencv-python>=4.10.0.84
+Pillow>=11.0.0
+
+# ── NLP & Embeddings ──────────────────────────────────────────────────────────
+sentence-transformers>=3.3.1
+spacy>=3.8.3
+umap-learn>=0.5.7
+hdbscan>=0.8.40
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+numpy>=2.1.0
+pandas>=2.2.3
+scikit-learn>=1.5.2
+
+# ── Visualisation ─────────────────────────────────────────────────────────────
+plotly>=5.24.1
+
+# ── Web UI ────────────────────────────────────────────────────────────────────
+streamlit>=1.40.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+pyyaml>=6.0.2
+tqdm>=4.67.0

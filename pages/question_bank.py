@@ -113,7 +113,7 @@ display_cols = ["Question", "Topic", "Heat", "Score", "Frequency", "Marks", "Yea
 styled = (
     filtered[display_cols]
     .style
-    .applymap(heat_color, subset=["Heat"])
+    .map(heat_color, subset=["Heat"])
     .format({"Score": "{:.3f}"})
 )
 

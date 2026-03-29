@@ -29,7 +29,8 @@ def _preprocess_image(img_array: np.ndarray) -> np.ndarray:
     _, binary = cv2.threshold(grey, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     # Deskew using Hough line transform
-    coords = np.column_stack(np.where(binary < 128))
+    # np.where returns (rows, cols); minAreaRect expects (x, y) = (cols, rows)
+    coords = np.column_stack(np.where(binary < 128))[:, ::-1]
     if len(coords) > 100:
         angle = cv2.minAreaRect(coords)[-1]
         if angle < -45:
@@ -62,13 +63,25 @@ def _ocr_page(pil_image: Image.Image, dpi: int = 300) -> tuple[str, float]:
     processed = _preprocess_image(img_array)
     processed_pil = Image.fromarray(processed)
 
-    # Get text and confidence data
+    # Single Tesseract pass — extract both text and confidence from image_to_data
     data = pytesseract.image_to_data(
         processed_pil,
         output_type=pytesseract.Output.DICT,
         config="--psm 6"
     )
-    text = pytesseract.image_to_string(processed_pil, config="--psm 6")
+
+    # Reconstruct text preserving line breaks so the segmentor's regex works.
+    # Group word tokens by (block_num, par_num, line_num), then join with \n.
+    lines: dict[tuple, list[str]] = {}
+    for word, conf, block, par, line in zip(
+        data["text"], data["conf"], data["block_num"], data["par_num"], data["line_num"]
+    ):
+        if str(conf).strip() in ("-1", "") or not word.strip():
+            continue
+        key = (block, par, line)
+        lines.setdefault(key, []).append(word)
+
+    text = "\n".join(" ".join(words) for words in lines.values())
 
     confidences = [int(c) for c in data["conf"] if str(c).strip() not in ("-1", "")]
     mean_conf = sum(confidences) / len(confidences) / 100 if confidences else 0.5
@@ -127,16 +140,27 @@ def load_pdf(pdf_path: str, min_chars_per_page: int = 50, dpi: int = 300) -> lis
         return native_pages
 
     # Fall through to OCR
-    print(f"  Native extraction got {avg_chars:.0f} chars/page → switching to OCR")
+    print(f"  Native extraction got {avg_chars:.0f} chars/page -> switching to OCR")
     return _extract_ocr(pdf_path, dpi)
 
 
-def pages_to_text(pages: list[dict]) -> tuple[str, float]:
+def pages_to_text(pages: list[dict], min_page_conf: float = 0.45) -> tuple[str, float]:
     """
     Merge page dicts into a single text block.
+    Pages with OCR confidence below min_page_conf are skipped — they are
+    typically dark/rotated scans that produce pure symbol gibberish and
+    would pollute the segmentor with unreadable content.
     Returns (full_text, mean_confidence).
     """
-    parts = [p["text"] for p in pages if p["text"]]
+    good_pages = [p for p in pages if p["ocr_confidence"] >= min_page_conf or p["method"] == "native"]
+    if not good_pages:
+        good_pages = pages  # fallback: keep everything if all pages are bad
+
+    skipped = len(pages) - len(good_pages)
+    if skipped:
+        print(f"  Skipped {skipped} low-confidence page(s) (conf < {min_page_conf})")
+
+    parts = [p["text"] for p in good_pages if p["text"]]
     full_text = "\n\n--- PAGE BREAK ---\n\n".join(parts)
-    mean_conf = sum(p["ocr_confidence"] for p in pages) / max(len(pages), 1)
+    mean_conf = sum(p["ocr_confidence"] for p in good_pages) / max(len(good_pages), 1)
     return full_text, mean_conf

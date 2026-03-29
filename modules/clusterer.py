@@ -17,12 +17,27 @@ def cluster_questions(
     Run HDBSCAN on 5-dimensional UMAP vectors.
     Returns dict: {question_id: cluster_id}
     Cluster -1 means noise (outlier).
+
+    Falls back to a single cluster (0) when there are too few points
+    for HDBSCAN to build its KD-tree (n_points < min_samples).
     """
+    n_points = len(vectors_5d)
+
+    # HDBSCAN requires at least min_samples points to build its KD-tree.
+    # With too few questions, assign everything to one cluster and skip.
+    if n_points < min_samples:
+        print(f"  Too few points ({n_points}) for HDBSCAN "
+              f"(min_samples={min_samples}) — assigning to single cluster.")
+        return {int(qid): 0 for qid in question_ids}
+
     print(f"  Running HDBSCAN (min_cluster_size={min_cluster_size})...")
     import hdbscan
 
+    # Clamp min_cluster_size so it never exceeds the point count
+    effective_min_cluster = min(min_cluster_size, n_points)
+
     clusterer = hdbscan.HDBSCAN(
-        min_cluster_size=min_cluster_size,
+        min_cluster_size=effective_min_cluster,
         min_samples=min_samples,
         metric="euclidean",
         cluster_selection_method="eom",

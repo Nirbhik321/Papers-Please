@@ -54,9 +54,16 @@ def label_clusters(
             labels[cluster_id] = f"Topic {cluster_id}"
             continue
 
-        # Pick top N most common noun phrases
+        # Pick top N most common noun phrases, deduplicated in order
         counter = Counter(chunks)
-        top_phrases = [phrase for phrase, _ in counter.most_common(top_n)]
+        seen: set[str] = set()
+        top_phrases: list[str] = []
+        for phrase, _ in counter.most_common(top_n * 2):
+            if phrase not in seen:
+                seen.add(phrase)
+                top_phrases.append(phrase)
+            if len(top_phrases) == top_n:
+                break
         label = " · ".join(p.title() for p in top_phrases)
         labels[cluster_id] = label
 
@@ -93,6 +100,13 @@ def _label_fallback(
                 and len(w) > 3
             )
         counter = Counter(words)
-        top = [w for w, _ in counter.most_common(top_n)]
+        seen: set[str] = set()
+        top: list[str] = []
+        for w, _ in counter.most_common(top_n * 2):
+            if w not in seen:
+                seen.add(w)
+                top.append(w)
+            if len(top) == top_n:
+                break
         labels[cluster_id] = " · ".join(w.title() for w in top) if top else f"Topic {cluster_id}"
     return labels

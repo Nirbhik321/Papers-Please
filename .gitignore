@@ -1,11 +1,48 @@
+# ── Data (may contain copyrighted papers; fully regenerable) ──────────────────
 data/
-output/
+
+# ── Example / sample papers (may contain copyrighted content) ────────────────
+examples/
+
+# ── Trained models (slow to retrain, but regenerable) ────────────────────────
 models/
+
+# ── Pipeline output (fully regenerable) ──────────────────────────────────────
+output/
+
+# ── SQLite database ───────────────────────────────────────────────────────────
+*.db
+
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
-.env
+*.pyd
+.Python
+
+# ── Virtual environments ──────────────────────────────────────────────────────
 .venv/
 venv/
-*.egg-info/
+env/
+ENV/
+
+# ── Environment variables ─────────────────────────────────────────────────────
+.env
+.env.*
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
 .DS_Store
+Thumbs.db
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Distribution / packaging ──────────────────────────────────────────────────
+dist/
+build/
+*.egg-info/

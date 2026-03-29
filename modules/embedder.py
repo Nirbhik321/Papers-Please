@@ -86,13 +86,30 @@ def reduce_umap(
             print(f"  Loaded UMAP {n_components}d from cache")
             return cached
 
-    print(f"  Running UMAP → {n_components} dimensions...")
+    n_samples = len(embeddings)
+
+    # UMAP spectral init requires n_components < n_samples.
+    # Clamp both parameters to safe values for small datasets.
+    safe_components = min(n_components, n_samples - 1)
+    safe_neighbors = min(n_neighbors, n_samples - 1)
+
+    # Use random init when the dataset is too small for spectral init
+    # (spectral needs n_components < n_samples, and struggles below ~15 points).
+    init = "random" if n_samples < 15 else "spectral"
+
+    if safe_components != n_components or safe_neighbors != n_neighbors:
+        print(f"  Small dataset ({n_samples} points): clamping UMAP params "
+              f"n_components {n_components}→{safe_components}, "
+              f"n_neighbors {n_neighbors}→{safe_neighbors}, init={init}")
+
+    print(f"  Running UMAP → {safe_components} dimensions...")
     import umap
     reducer = umap.UMAP(
-        n_components=n_components,
-        n_neighbors=n_neighbors,
+        n_components=safe_components,
+        n_neighbors=safe_neighbors,
         min_dist=min_dist,
         random_state=random_state,
+        init=init,
         verbose=False,
     )
     reduced = reducer.fit_transform(embeddings).astype(np.float32)
