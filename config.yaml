@@ -1,0 +1,35 @@
+# ExamLens Configuration
+# Edit these values to tune the pipeline — no Python code changes needed
+
+ingestion:
+  min_chars_per_page: 50        # below this → fall through to OCR
+  ocr_dpi: 300                  # upscale scanned images to this DPI before Tesseract
+
+segmentation:
+  min_question_length: 10       # shorter strings skipped (likely headers/noise)
+
+embedding:
+  model_name: "all-mpnet-base-v2"
+  batch_size: 64
+  cache_dir: "data/embeddings"
+  force_recompute: false        # set true to re-encode even if cache exists
+
+clustering:
+  umap_n_components_cluster: 5  # dimensions fed to HDBSCAN
+  umap_n_components_vis: 2      # dimensions for scatter plot only
+  umap_n_neighbors: 15
+  umap_min_dist: 0.1
+  hdbscan_min_cluster_size: 5   # increase if too many small clusters
+  hdbscan_min_samples: 3
+
+scoring:
+  recency_decay: 0.85           # weight multiplier per year going back
+  heat_high_threshold: 0.7      # above this → HIGH
+  heat_mid_threshold: 0.4       # above this → MEDIUM, below → LOW
+
+paths:
+  raw_dir: "data/raw"
+  extracted_dir: "data/extracted"
+  embeddings_dir: "data/embeddings"
+  output_dir: "output"
+  db_path: "data/questions.db"

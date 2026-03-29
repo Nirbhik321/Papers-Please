@@ -1,0 +1,15 @@
+
+streamlit
+numpy
+hdbscan
+tqdm
+sentence-transformers
+umap-learn
+opencv-python
+pdfplumber
+pytesseract
+Pillow
+spacy
+plotly
+pandas
+pyyaml
