@@ -1,123 +1,51 @@
 """
-embedder.py — F09 F10
-Sentence-BERT encoding + UMAP reduction.
-Caches all numpy arrays to disk so re-runs are instant.
+embedder.py — Sentence-BERT encoding for semantic similarity.
+
+Uses paraphrase-MiniLM-L6-v2 (~90 MB, CPU-only, no GPU needed).
+This model is explicitly trained on paraphrase pairs, making it far better
+than all-MiniLM-L6-v2 at detecting "Explain X" ≈ "Describe the working of X"
+which is the dominant pattern in exam question deduplication.
+
+Model is loaded once and cached for the process lifetime.
 """
 
-from pathlib import Path
-
 import numpy as np
-from tqdm import tqdm
+from sentence_transformers import SentenceTransformer
 
 
-def _cache_path(cache_dir: str, name: str) -> Path:
-    return Path(cache_dir) / f"{name}.npy"
+_MODEL_NAME = "paraphrase-MiniLM-L6-v2"
+_model: SentenceTransformer | None = None
 
 
-def _load_cache(cache_dir: str, name: str) -> np.ndarray | None:
-    p = _cache_path(cache_dir, name)
-    if p.exists():
-        return np.load(str(p), allow_pickle=False)
-    return None
+def _get_model() -> SentenceTransformer:
+    global _model
+    if _model is None:
+        print(f"  Loading Sentence-BERT ({_MODEL_NAME})...")
+        _model = SentenceTransformer(_MODEL_NAME)
+    return _model
 
 
-def _save_cache(cache_dir: str, name: str, array: np.ndarray) -> None:
-    Path(cache_dir).mkdir(parents=True, exist_ok=True)
-    np.save(str(_cache_path(cache_dir, name)), array)
-
-
-def encode_questions(
-    texts: list[str],
-    question_ids: list[int],
-    model_name: str = "all-mpnet-base-v2",
-    batch_size: int = 64,
-    cache_dir: str = "data/embeddings",
-    force: bool = False,
-) -> np.ndarray:
+def encode(texts: list[str], batch_size: int = 64) -> np.ndarray:
     """
-    F09 — Encode questions with Sentence-BERT.
-    Returns float32 array of shape (n_questions, 768).
-    Loads from cache unless force=True.
+    Encode a list of strings into L2-normalised embedding vectors.
+    Returns ndarray of shape (N, 384).
     """
-    if not force:
-        cached = _load_cache(cache_dir, "vectors_768d")
-        cached_ids = _load_cache(cache_dir, "question_ids")
-        if cached is not None and cached_ids is not None:
-            if len(cached) == len(texts):
-                print(f"  Loaded {len(cached)} embeddings from cache")
-                return cached
-
-    print(f"  Encoding {len(texts)} questions with {model_name}...")
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer(model_name)
-
+    if not texts:
+        return np.zeros((0, 384), dtype=np.float32)
+    model = _get_model()
     embeddings = model.encode(
         texts,
         batch_size=batch_size,
-        show_progress_bar=True,
-        convert_to_numpy=True,
-        normalize_embeddings=False,
+        normalize_embeddings=True,  # L2 norm → cosine sim = dot product
+        show_progress_bar=False,
     )
-    embeddings = embeddings.astype(np.float32)
-
-    _save_cache(cache_dir, "vectors_768d", embeddings)
-    _save_cache(cache_dir, "question_ids", np.array(question_ids, dtype=np.int64))
-    print(f"  Saved embeddings to {cache_dir}/")
-    return embeddings
+    return embeddings.astype(np.float32)
 
 
-def reduce_umap(
-    embeddings: np.ndarray,
-    n_components: int,
-    n_neighbors: int = 15,
-    min_dist: float = 0.1,
-    cache_dir: str = "data/embeddings",
-    cache_name: str | None = None,
-    force: bool = False,
-    random_state: int = 42,
-) -> np.ndarray:
+def cosine_similarity_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """
-    F10 — UMAP dimensionality reduction.
-    cache_name: if given, saves/loads from cache.
+    Compute cosine similarity between every pair (a[i], b[j]).
+    Since vectors are already L2-normalised, this is just a dot product.
+    Returns ndarray of shape (len(a), len(b)).
     """
-    if cache_name and not force:
-        cached = _load_cache(cache_dir, cache_name)
-        if cached is not None and len(cached) == len(embeddings):
-            print(f"  Loaded UMAP {n_components}d from cache")
-            return cached
-
-    n_samples = len(embeddings)
-
-    # UMAP spectral init requires n_components < n_samples.
-    # Clamp both parameters to safe values for small datasets.
-    safe_components = min(n_components, n_samples - 1)
-    safe_neighbors = min(n_neighbors, n_samples - 1)
-
-    # Use random init when the dataset is too small for spectral init
-    # (spectral needs n_components < n_samples, and struggles below ~15 points).
-    init = "random" if n_samples < 15 else "spectral"
-
-    if safe_components != n_components or safe_neighbors != n_neighbors:
-        print(f"  Small dataset ({n_samples} points): clamping UMAP params "
-              f"n_components {n_components}→{safe_components}, "
-              f"n_neighbors {n_neighbors}→{safe_neighbors}, init={init}")
-
-    print(f"  Running UMAP → {safe_components} dimensions...")
-    import umap
-    reducer = umap.UMAP(
-        n_components=safe_components,
-        n_neighbors=safe_neighbors,
-        min_dist=min_dist,
-        random_state=random_state,
-        init=init,
-        verbose=False,
-    )
-    reduced = reducer.fit_transform(embeddings).astype(np.float32)
-
-    if cache_name:
-        _save_cache(cache_dir, cache_name, reduced)
-    return reduced
-
-
-def load_question_ids(cache_dir: str) -> np.ndarray | None:
-    return _load_cache(cache_dir, "question_ids")
+    return a @ b.T

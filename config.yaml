@@ -1,35 +1,39 @@
-# ExamLens Configuration
-# Edit these values to tune the pipeline — no Python code changes needed
+# Papers Please — configuration
 
-ingestion:
-  min_chars_per_page: 50        # below this → fall through to OCR
-  ocr_dpi: 300                  # upscale scanned images to this DPI before Tesseract
+db:
+  path: data/papers.db
 
-segmentation:
-  min_question_length: 10       # shorter strings skipped (likely headers/noise)
+extraction:
+  dpi: 300                      # render DPI for scanned PDFs
+  min_native_text_per_page: 100 # chars — below this, switch to OCR
 
-embedding:
-  model_name: "all-mpnet-base-v2"
-  batch_size: 64
-  cache_dir: "data/embeddings"
-  force_recompute: false        # set true to re-encode even if cache exists
-
-clustering:
-  umap_n_components_cluster: 5  # dimensions fed to HDBSCAN
-  umap_n_components_vis: 2      # dimensions for scatter plot only
-  umap_n_neighbors: 15
-  umap_min_dist: 0.1
-  hdbscan_min_cluster_size: 5   # increase if too many small clusters
-  hdbscan_min_samples: 3
+deduplication:
+  similarity_threshold: 0.80    # cosine similarity for "same question"
+  min_text_length: 10           # ignore sub-questions shorter than this
 
 scoring:
-  recency_decay: 0.85           # weight multiplier per year going back
-  heat_high_threshold: 0.7      # above this → HIGH
-  heat_mid_threshold: 0.4       # above this → MEDIUM, below → LOW
+  recency_decay: 0.85           # per-year decay factor (1.0 = current year)
+  max_module_marks: 20          # max marks per module in the exam
 
-paths:
-  raw_dir: "data/raw"
-  extracted_dir: "data/extracted"
-  embeddings_dir: "data/embeddings"
-  output_dir: "output"
-  db_path: "data/questions.db"
+tagger:
+  preferred_models:             # Ollama models tried in order
+    - phi3:mini
+    - phi3
+    - llama3.2:3b
+    - mistral:7b
+
+vtu_subjects:
+  BCS501: Software Engineering
+  BCS502: Computer Networks
+  BCS503: Theory of Computation
+  BCS504: Design and Analysis of Algorithms
+  BCS505: Database Management Systems
+  BCS506: Operating Systems
+  BCS507: Computer Organization
+  BCS515D: Distributed Systems
+  BCS516D: Cloud Computing
+  BCS517D: Machine Learning
+  BCS518D: Artificial Intelligence
+  BCS519D: Data Science
+  BCS521D: Internet of Things
+  BCS522D: Blockchain Technology

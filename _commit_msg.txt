@@ -1,0 +1,13 @@
+feat: improve semantic deduplication with paraphrase model and centroid clustering
+
+- Switch embedder from all-MiniLM-L6-v2 to paraphrase-MiniLM-L6-v2, which
+  is explicitly trained on paraphrase pairs and far better at recognizing
+  "Explain X" == "Describe working of X with diagram" patterns
+- Lower similarity threshold from 0.80 to 0.70 to catch real-world
+  exam question paraphrases that scored 0.72-0.78 under the old model
+- Replace greedy seed comparison with centroid-based clustering so new
+  questions are compared to the cluster mean rather than just the first
+  member, preventing missed merges in longer synonym chains
+- Add OCR noise cleaner (_clean_for_embed) that strips leading sub-question
+  labels (a., _b., Q.3), fixes run-together OCR prefixes (AWith -> With),
+  and removes trailing junk before embedding for cleaner vector representations
