@@ -20,7 +20,6 @@ The "guaranteed marks" calculation:
   When cumulative ≥ max_module_marks → student has full coverage.
 """
 
-import math
 from datetime import date
 
 RECENCY_DECAY = 0.85

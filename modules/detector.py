@@ -4,9 +4,8 @@ detector.py — PDF format detection and table extraction.
 Strategy:
   1. Try pdfplumber native table extraction (works for digital PDFs).
   2. If no tables found or too little text → treat as scanned.
-  3. For scanned PDFs: render page at 300 DPI, detect table grid with
-     OpenCV HoughLines, crop each cell individually, OCR with Tesseract.
-     Cell-level OCR is dramatically more accurate than full-page OCR.
+  3. For scanned PDFs: render page at 300 DPI, run Tesseract OCR with
+     fixed proportional column splits calibrated to VTU CBCS layout.
 """
 
 import re
@@ -24,7 +23,6 @@ from PIL import Image
 
 DPI = 300
 MIN_NATIVE_TEXT_PER_PAGE = 100   # chars — below this, treat as scanned
-MIN_TABLE_COLS = 3               # a valid question table has at least 3 cols
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -71,7 +69,6 @@ def _extract_native(pdf_path: str) -> tuple[list[list[str]], bool]:
                         if any(cleaned):
                             all_rows.append(cleaned)
 
-    avg_text = total_text / max(1, 1)
     if total_text < MIN_NATIVE_TEXT_PER_PAGE or not all_rows:
         return [], False
 
