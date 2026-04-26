@@ -130,6 +130,14 @@ def paper_exists(db_path: str, filename: str) -> bool:
 
 # ── Sub-questions ───────────────────────────────────────────────────────────────
 
+def delete_sub_questions_for_paper(db_path: str, paper_id: int) -> None:
+    """Remove all sub_questions for a paper (used before force re-insert)."""
+    conn = get_conn(db_path)
+    conn.execute("DELETE FROM sub_questions WHERE paper_id=?", (paper_id,))
+    conn.commit()
+    conn.close()
+
+
 def insert_sub_questions(db_path: str, paper_id: int, sub_qs: list[dict]) -> list[int]:
     """Bulk insert sub_questions. Returns list of inserted ids."""
     conn = get_conn(db_path)

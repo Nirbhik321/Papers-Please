@@ -141,6 +141,8 @@ def run(
             if paper_id is None:
                 _progress(f"  {fname} already in database — skipping")
                 continue
+            if force:
+                db.delete_sub_questions_for_paper(db_path, paper_id)
             db.insert_sub_questions(db_path, paper_id, sub_qs)
         except Exception as e:
             summary["errors"].append(
