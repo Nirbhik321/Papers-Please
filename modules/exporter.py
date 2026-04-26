@@ -1,16 +1,16 @@
 """
-exporter.py — Generate a printable PDF cheat sheet using fpdf2.
+exporter.py — Generate exports: PDF cheat sheet and CSV question bank.
 
-One page per subject (or per module if content is large).
-Layout per module:
-  - Module heading
-  - Ranked questions with frequency bar, marks, years
-  - Topic keywords
-  - Marks ladder (guaranteed marks calculation)
+PDF: one page per subject with ranked questions, frequency bars, marks ladder.
+CSV: ordered question bank for teachers to build internal assessments.
 """
 
-from fpdf import FPDF, XPos, YPos
+import csv
+import io
 from datetime import date
+
+from fpdf import FPDF, XPos, YPos
+
 from modules.scorer import format_years, format_appearances, MAX_MODULE_MARKS
 
 
@@ -232,3 +232,44 @@ def _draw_footer(pdf: FPDF):
         "Papers Please  -  Frequency analysis only - not a guarantee of exam content.",
         align="C",
     )
+
+
+# ── CSV question bank ─────────────────────────────────────────────────────────
+
+def generate_csv(
+    subject_name: str,
+    subject_code: str,
+    module_ladders: dict[int, list[dict]],
+    total_papers: int,
+) -> str:
+    """
+    Generate a CSV question bank sorted by module then priority rank.
+
+    Returns the CSV content as a string (ready for st.download_button).
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+
+    writer.writerow([
+        "Module", "Priority Rank", "Topic Label", "Question Text",
+        "Avg Marks", "Times Repeated", "Total Papers", "Frequency %",
+        "Years Seen", "Expected Marks", "Full Coverage",
+    ])
+
+    for module_no in sorted(module_ladders.keys()):
+        for step in module_ladders[module_no]:
+            writer.writerow([
+                module_no,
+                step["rank"],
+                step.get("topic_label") or "",
+                step["representative_text"],
+                int(step.get("avg_marks") or 0),
+                step["frequency"],
+                total_papers,
+                f"{step['frequency_pct'] * 100:.0f}%",
+                format_years(step.get("years", [])),
+                f"{step.get('expected_marks', 0):.1f}",
+                "YES" if step["full_coverage"] else "",
+            ])
+
+    return buf.getvalue()

@@ -14,7 +14,7 @@ import streamlit as st
 import pipeline
 from modules.db import get_distinct_subjects, init_db
 from modules.scorer import format_years, format_appearances, MAX_MODULE_MARKS
-from modules.exporter import generate_cheat_sheet
+from modules.exporter import generate_cheat_sheet, generate_csv
 
 DB_PATH = str(Path(__file__).parent.parent / "data" / "papers.db")
 Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
@@ -197,39 +197,57 @@ for subj in subjects:
             with tab:
                 render_module(module_ladders[module_no], total_papers_loaded, module_no)
 
-        # PDF export — scoped to this subject
+        # Export — scoped to this subject
         st.divider()
-        if st.button(
-            f"Generate Cheat Sheet PDF — {subject_code}",
-            key=f"pdf_{subject_code}",
-            type="primary",
-        ):
-            with st.spinner("Building PDF..."):
-                try:
-                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                        out_path = tmp.name
+        col_pdf, col_csv = st.columns(2)
 
-                    generate_cheat_sheet(
-                        subject_name=subject_name,
-                        subject_code=subject_code,
-                        module_ladders=module_ladders,
-                        total_papers=total_papers_loaded,
-                        output_path=out_path,
-                    )
+        with col_pdf:
+            if st.button(
+                f"Generate Cheat Sheet PDF — {subject_code}",
+                key=f"pdf_{subject_code}",
+                type="primary",
+            ):
+                with st.spinner("Building PDF..."):
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                            out_path = tmp.name
 
-                    with open(out_path, "rb") as f:
-                        pdf_bytes = f.read()
+                        generate_cheat_sheet(
+                            subject_name=subject_name,
+                            subject_code=subject_code,
+                            module_ladders=module_ladders,
+                            total_papers=total_papers_loaded,
+                            output_path=out_path,
+                        )
 
-                    st.download_button(
-                        label=f"Download {subject_code} Cheat Sheet",
-                        data=pdf_bytes,
-                        file_name=f"{subject_code}_cheat_sheet.pdf",
-                        mime="application/pdf",
-                        key=f"dl_{subject_code}",
-                    )
+                        with open(out_path, "rb") as f:
+                            pdf_bytes = f.read()
 
-                except Exception as e:
-                    st.error(
-                        f"PDF generation failed: {str(e)[:200]}. "
-                        "Try again or check that all papers are processed."
-                    )
+                        st.download_button(
+                            label=f"Download {subject_code} Cheat Sheet",
+                            data=pdf_bytes,
+                            file_name=f"{subject_code}_cheat_sheet.pdf",
+                            mime="application/pdf",
+                            key=f"dl_{subject_code}",
+                        )
+
+                    except Exception as e:
+                        st.error(
+                            f"PDF generation failed: {str(e)[:200]}. "
+                            "Try again or check that all papers are processed."
+                        )
+
+        with col_csv:
+            csv_data = generate_csv(
+                subject_name=subject_name,
+                subject_code=subject_code,
+                module_ladders=module_ladders,
+                total_papers=total_papers_loaded,
+            )
+            st.download_button(
+                label=f"Download Question Bank CSV — {subject_code}",
+                data=csv_data,
+                file_name=f"{subject_code}_question_bank.csv",
+                mime="text/csv",
+                key=f"csv_{subject_code}",
+            )
