@@ -1,39 +1,40 @@
 """
 tagger.py — Generate 3-5 word topic labels for canonical question clusters.
 
-Uses Ollama (local LLM) with Phi-3 Mini or any available model.
-Falls back to simple keyword extraction if Ollama is unavailable.
+Uses Ollama (local LLM) via direct HTTP REST call — no pydantic dependency.
+Falls back to bigram-based keyword extraction if Ollama is unavailable.
 Topic labels are generated once and cached in the DB — not re-generated
 on every pipeline run.
 """
 
+import json
 import re
 import subprocess
+import urllib.error
+import urllib.request
 from collections import Counter
 
-# Try importing ollama; gracefully degrade if not installed
-try:
-    import ollama as _ollama
-    _OLLAMA_AVAILABLE = True
-except ImportError:
-    _OLLAMA_AVAILABLE = False
+_OLLAMA_BASE = "http://localhost:11434"
 
 # Preferred models in priority order
-_PREFERRED_MODELS = ["phi3:mini", "phi3", "llama3.2:3b", "mistral:7b", "llama2"]
+_PREFERRED_MODELS = ["phi3:mini", "phi3", "llama3.2:3b", "mistral:7b", "llama2", "llama3.2"]
 
 
 def _get_available_model() -> str | None:
-    """Return the first available Ollama model from the preference list."""
-    if not _OLLAMA_AVAILABLE:
-        return None
+    """
+    Return the first installed Ollama model that matches our preference list.
+    Uses the REST API directly — no pydantic/ollama package required.
+    """
     try:
-        result = subprocess.run(
-            ["ollama", "list"], capture_output=True, text=True, timeout=5
-        )
-        available = result.stdout.lower()
-        for model in _PREFERRED_MODELS:
-            if model.split(":")[0] in available:
-                return model
+        req = urllib.request.urlopen(f"{_OLLAMA_BASE}/api/tags", timeout=3)
+        data = json.loads(req.read().decode())
+        installed = [m["name"] for m in data.get("models", [])]
+        # Match against preference list by base name
+        for preferred in _PREFERRED_MODELS:
+            prefix = preferred.split(":")[0]
+            for actual in installed:
+                if actual.split(":")[0] == prefix:
+                    return actual
     except Exception:
         pass
     return None
@@ -58,7 +59,7 @@ def generate_topic_label(question_texts: list[str]) -> str:
 
 
 def _label_with_ollama(texts: list[str], model: str) -> str:
-    """Use Ollama to generate a concise topic label."""
+    """Use Ollama REST API to generate a concise topic label."""
     sample = texts[:3]
     examples = "\n".join(f"- {t}" for t in sample)
 
@@ -74,15 +75,26 @@ def _label_with_ollama(texts: list[str], model: str) -> str:
     )
 
     try:
-        response = _ollama.chat(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.1, "num_predict": 20},
+        payload = json.dumps({
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "options": {"temperature": 0.1, "num_predict": 20},
+        }).encode()
+
+        req = urllib.request.Request(
+            f"{_OLLAMA_BASE}/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
-        label = response["message"]["content"].strip()
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+
+        label = result.get("message", {}).get("content", "").strip()
         # Sanitize: remove quotes, leading dashes, limit length
         label = re.sub(r"^[\-\*\"\'\s]+|[\"\'\s]+$", "", label)
-        # Strip leading question verbs if Ollama ignored the instruction
+        # Strip leading question verbs if model ignored the instruction
         label = re.sub(
             r"^(Explain|Define|Describe|Discuss|Derive|Prove|Show|Compare|List|Write|Draw|Illustrate|State|Evaluate|Analyze|Outline|Find|Solve|Give)\s+",
             "",
