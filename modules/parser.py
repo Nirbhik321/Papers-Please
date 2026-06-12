@@ -46,6 +46,15 @@ _MODULE_FUZZY  = re.compile(
     r"(?:Mod(?:u|v|ul|ule)?|M[aeiouv][dg]|Mfod)\w*\s*[-–—=~P]+\s*([1-5])",
     re.IGNORECASE,
 )
+# Second fuzzy: catches more garbled OCR combos like "MoDuLe =P 2", "Mfdule – 4"
+_MODULE_FUZZY2 = re.compile(
+    r"M[0oO][dD][uUvV]?\w{0,3}\s*[-–—=~|P]+\s*([1-5])",
+    re.IGNORECASE,
+)
+
+# Patterns that disqualify a row from being a module header heuristic
+_SUB_Q_LABEL_PAT = re.compile(r"\b[a-cA-C]\s*[.\)]\s")   # "a. " or "b) "
+_Q_NO_PAT        = re.compile(r"[QqOo0]\s*[.\s]?\s*\d")   # Q.1, O.4, O22
 
 # OR separator row
 _OR_ROW = re.compile(r"^\s*(?:P?OR|0R)\s*$", re.IGNORECASE)
@@ -142,7 +151,13 @@ def _extract_co(cell: str) -> Optional[str]:
 # ── Module header detection ────────────────────────────────────────────────────
 
 def _detect_module(row: list[str], text_col: int) -> Optional[int]:
-    """Return module number if this row is a module header, else None."""
+    """Return module number if this row is a module header, else None.
+
+    Guarding against false positives:
+    - Sub-question label rows ("a. Explain ...")
+    - Q.No rows ("Q.3 ...")
+    - Rows with marks-range numbers (4-20)
+    """
     full = " ".join(c for c in row if c).strip()
 
     # Strict: "Module – 3" or "Module = 1" (even with OCR noise in separator)
@@ -150,18 +165,33 @@ def _detect_module(row: list[str], text_col: int) -> Optional[int]:
     if m:
         return int(m.group(1))
 
-    # Fuzzy: garbled "Module" OCR like "Mfodwle =P" → Module 1
+    # Fuzzy pass 1: garbled "Module" OCR like "Mfodwle =P"
     m = _MODULE_FUZZY.search(full)
     if m:
         return int(m.group(1))
 
-    # Heuristic: short row with a standalone digit 1-5 and no question words.
-    # Exclude rows that contain Q.No patterns (e.g. "Q.4") to avoid false positives.
-    text_cell = _get_cell(row, text_col)
-    has_q_no = re.search(r"[Qq]\s*[.\s]?\s*\d", full)
-    if len(full) <= 30 and not _QUESTION_WORDS.search(full) and not has_q_no:
+    # Fuzzy pass 2: covers more OCR combos
+    m = _MODULE_FUZZY2.search(full)
+    if m:
+        return int(m.group(1))
+
+    # Heuristic: short isolated row containing only a digit 1-5.
+    # Apply STRICT guards to avoid false positives on garbled Q.No rows:
+    #   - must be ≤ 20 chars (tighter than before)
+    #   - must not look like "a. something" (sub-question label)
+    #   - must not look like "Q.3" (Q.No cell)
+    #   - must not contain a marks-range number (4-20)
+    #   - must not contain question-verb words
+    if (
+        len(full) <= 20
+        and not _QUESTION_WORDS.search(full)
+        and not _SUB_Q_LABEL_PAT.search(full)
+        and not _Q_NO_PAT.search(full)
+        and not any(4 <= int(d) <= 20 for d in re.findall(r"\b(\d{1,2})\b", full))
+        and "?" not in full
+    ):
         digits = re.findall(r"\b([1-5])\b", full)
-        if digits and "?" not in full:
+        if len(digits) == 1:          # exactly one module digit, no ambiguity
             return int(digits[0])
 
     return None

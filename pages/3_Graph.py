@@ -56,6 +56,35 @@ if not module_ladders:
     st.warning("No analysis data found for this subject.")
     st.stop()
 
+# ── Controls (frequency filter + study path toggle) ────────────────────────────
+ctrl_c1, ctrl_c2 = st.columns([3, 2])
+with ctrl_c1:
+    min_freq = st.slider(
+        "Minimum repeat frequency",
+        min_value=1,
+        max_value=max(total_papers, 1),
+        value=1,
+        help="Hide topics that appear in fewer papers than this threshold.",
+    )
+with ctrl_c2:
+    study_mode = st.toggle(
+        "📚 Study Path highlight",
+        value=False,
+        help="Highlight the minimum set of topics needed to cover every module fully.",
+    )
+
+# ── Study Path calculation ─────────────────────────────────────────────────────
+# For each module, find the rank at which full_coverage first becomes True.
+# All steps up to that rank are in the "study path".
+study_path_ids: set[tuple[int, int]] = set()
+for module_no, steps in module_ladders.items():
+    coverage_cutoff = next(
+        (s["rank"] for s in steps if s.get("full_coverage")),
+        len(steps),
+    )
+    for step in steps[:coverage_cutoff]:
+        study_path_ids.add((module_no, step.get("rank", 1)))
+
 # ── Topic-family extraction ────────────────────────────────────────────────────
 _STRIP = re.compile(
     r"^(explain|define|describe|derive|prove|illustrate|list|compare|"
@@ -87,9 +116,14 @@ nid   = 0
 for module_no, steps in module_ladders.items():
     color = MODULE_COLORS.get(module_no, "#888780")
     module_nids = []
+    module_steps_filtered = []
 
     for step in steps:
         freq      = step["frequency"]
+        # Apply frequency filter
+        if freq < min_freq:
+            continue
+
         freq_pct  = step["frequency_pct"]
         label     = (step.get("topic_label") or step["representative_text"][:40]).strip()
         avg_marks = step.get("avg_marks") or 0
@@ -98,31 +132,34 @@ for module_no, steps in module_ladders.items():
         rank      = step.get("rank", 1)
         family    = topic_family(label)
         radius    = 14 + freq_pct * 28
+        in_study_path = (module_no, rank) in study_path_ids
 
         nodes.append({
-            "id":       nid,
-            "label":    label,
-            "family":   family,
-            "module":   module_no,
-            "color":    color,
-            "radius":   round(radius, 1),
-            "freq":     freq,
-            "freq_pct": round(freq_pct * 100),
-            "marks":    int(avg_marks),
-            "years":    years,
-            "rank":     rank,
-            "text":     text[:200],
+            "id":            nid,
+            "label":         label,
+            "family":        family,
+            "module":        module_no,
+            "color":         color,
+            "radius":        round(radius, 1),
+            "freq":          freq,
+            "freq_pct":      round(freq_pct * 100),
+            "marks":         int(avg_marks),
+            "years":         years,
+            "rank":          rank,
+            "text":          text[:200],
+            "in_study_path": in_study_path,
         })
         module_nids.append(nid)
+        module_steps_filtered.append(step)
         nid += 1
 
     for i in range(len(module_nids)):
         for j in range(i + 1, len(module_nids)):
             a, b = module_nids[i], module_nids[j]
-            fam_a = topic_family((steps[i].get("topic_label") or steps[i]["representative_text"][:40]).strip())
-            fam_b = topic_family((steps[j].get("topic_label") or steps[j]["representative_text"][:40]).strip())
+            fam_a = topic_family((module_steps_filtered[i].get("topic_label") or module_steps_filtered[i]["representative_text"][:40]).strip())
+            fam_b = topic_family((module_steps_filtered[j].get("topic_label") or module_steps_filtered[j]["representative_text"][:40]).strip())
             same_family = fam_a == fam_b
-            strength = 0.7 if same_family else max(0.08, 0.35 - abs(steps[i]["rank"] - steps[j]["rank"]) * 0.05)
+            strength = 0.7 if same_family else max(0.08, 0.35 - abs(module_steps_filtered[i]["rank"] - module_steps_filtered[j]["rank"]) * 0.05)
             edges.append({
                 "source":      a,
                 "target":      b,
@@ -145,6 +182,7 @@ for fam, mods in family_module.items():
 
 graph_data   = json.dumps({"nodes": nodes, "edges": edges})
 cluster_data = json.dumps(clusters)
+study_path_on = "true" if study_mode else "false"
 
 legend_items = [
     {"module": m, "color": MODULE_COLORS.get(m, "#888"), "count": len(steps)}
@@ -207,13 +245,22 @@ html = f"""
   #controls button:hover {{ background:rgba(255,255,255,0.15); color:#fff; }}
 
   #cluster-toggle {{
-    position: absolute; bottom: 52px; left: 14px;
+    position: absolute; bottom: 84px; left: 14px;
     background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
     border-radius: 6px; color: #aaa; font-size: 10px; padding: 5px 10px;
     cursor: pointer; z-index: 10; transition: background .15s; font-family: inherit;
   }}
   #cluster-toggle:hover {{ background: rgba(255,255,255,0.14); color:#fff; }}
   #cluster-toggle.active {{ background: rgba(127,119,221,0.22); border-color: rgba(127,119,221,0.45); color:#c4bff6; }}
+
+  #study-toggle {{
+    position: absolute; bottom: 52px; left: 14px;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px; color: #aaa; font-size: 10px; padding: 5px 10px;
+    cursor: pointer; z-index: 10; transition: background .15s; font-family: inherit;
+  }}
+  #study-toggle:hover {{ background: rgba(255,255,255,0.14); color:#fff; }}
+  #study-toggle.active {{ background: rgba(255,220,100,0.18); border-color: rgba(255,220,100,0.5); color:#fde68a; }}
 
   #hint {{
     position:absolute; bottom:14px; left:14px;
@@ -227,6 +274,7 @@ html = f"""
   <div id="cluster-legend"><div class="leg-title">Topic clusters</div></div>
   <div id="tooltip"></div>
   <button id="cluster-toggle" class="active">⬡ topic hulls ON</button>
+  <button id="study-toggle" class="{('active' if study_mode else '')}">📚 study path {'ON' if study_mode else 'OFF'}</button>
   <div id="controls">
     <button id="btn-zoom-in">+</button>
     <button id="btn-zoom-out">−</button>
@@ -240,6 +288,7 @@ html = f"""
 const GRAPH    = {graph_data};
 const CLUSTERS = {cluster_data};
 const LEGEND   = {legend_json};
+let studyPathVisible = {study_path_on};
 
 const wrap      = document.getElementById('graph-wrap');
 const svg       = d3.select('#graph-canvas');
@@ -387,6 +436,15 @@ node.append('circle').attr('r', d=>d.radius+5)
   .attr('fill', d=>d.color).attr('opacity', 0.1)
   .attr('filter', d=>`url(#glow-${{d.module}})`);
 
+/* Study path outer ring — white pulsing border for must-study topics */
+const studyRing = node.filter(d => d.in_study_path).append('circle')
+  .attr('r', d => d.radius + 8)
+  .attr('fill', 'none')
+  .attr('stroke', '#fde68a')
+  .attr('stroke-width', 2)
+  .attr('stroke-dasharray', '5 3')
+  .attr('stroke-opacity', studyPathVisible ? 0.75 : 0);
+
 const mainCircle = node.append('circle')
   .attr('r', d=>d.radius)
   .attr('fill', d=>d.color).attr('fill-opacity', d=>0.15+d.freq_pct/220)
@@ -412,9 +470,10 @@ node.filter(d=>d.freq>1).append('text')
 /* Tooltip */
 node.on('mouseenter',(e,d)=>{{
   const yrs = d.years.length ? d.years.join(', ') : '—';
+  const spBadge = d.in_study_path ? '<span style="background:#fde68a;color:#0d0e14;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700;margin-left:6px;">STUDY PATH</span>' : '';
   tooltip.style.display='block';
   tooltip.innerHTML=`
-    <div class="tt-label">${{d.label}}</div>
+    <div class="tt-label">${{d.label}}${{spBadge}}</div>
     <div class="tt-family">cluster: ${{d.family}}</div>
     <div class="tt-row"><span>Module</span><span>Module ${{d.module}}</span></div>
     <div class="tt-row"><span>Frequency</span><span>${{d.freq}} paper(s) · ${{d.freq_pct}}%</span></div>
@@ -462,6 +521,15 @@ toggleBtn.addEventListener('click',()=>{{
   buildHulls();
 }});
 
+/* Study path toggle */
+const studyBtn = document.getElementById('study-toggle');
+studyBtn.addEventListener('click',()=>{{
+  studyPathVisible=!studyPathVisible;
+  studyBtn.textContent=studyPathVisible?'📚 study path ON':'📚 study path OFF';
+  studyBtn.classList.toggle('active',studyPathVisible);
+  studyRing.attr('stroke-opacity', studyPathVisible ? 0.75 : 0);
+}});
+
 /* Tick */
 sim.on('tick',()=>{{
   link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
@@ -472,7 +540,7 @@ sim.on('tick',()=>{{
 </script>
 """
 
-components.html(html, height=660, scrolling=False)
+components.html(html, height=700, scrolling=False)
 
 # ── Stats ──────────────────────────────────────────────────────────────────────
 st.divider()
@@ -489,8 +557,50 @@ c2.metric("Topic Clusters",  unique_families)
 c3.metric("Modules Mapped",  len(module_ladders))
 c4.metric("Papers Analysed", total_papers)
 
+# ── Per-module coverage summary ────────────────────────────────────────────────
+st.subheader("📋 Module Coverage Summary")
+st.caption(
+    "How many topics (ranked by score) you need to study to achieve full expected-marks coverage per module."
+)
+
+import pandas as pd
+
+coverage_rows = []
+for module_no, steps in sorted(module_ladders.items()):
+    visible_steps = [s for s in steps if s["frequency"] >= min_freq]
+    if not visible_steps:
+        coverage_rows.append({
+            "Module": f"Module {module_no}",
+            "Topics shown": 0,
+            "Study top N": "—",
+            "Marks locked": "—",
+            "Note": f"No topics at freq ≥ {min_freq}",
+        })
+        continue
+
+    full_at = next((s for s in visible_steps if s.get("full_coverage")), None)
+    if full_at:
+        n = full_at["rank"]
+        cum = int(full_at.get("cumulative_expected", 0))
+        note = f"Study top {n} → ~{cum}M locked in"
+    else:
+        cum = int(visible_steps[-1].get("cumulative_expected", 0)) if visible_steps else 0
+        note = f"Partial coverage → ~{cum}M"
+
+    study_count = len([s for s in visible_steps if (module_no, s.get("rank", 1)) in study_path_ids])
+
+    coverage_rows.append({
+        "Module": f"Module {module_no}",
+        "Topics shown": len(visible_steps),
+        "Study top N": study_count if full_at else "—",
+        "Note": note,
+    })
+
+st.dataframe(pd.DataFrame(coverage_rows), use_container_width=True, hide_index=True)
+
 st.caption(
     "Shaded hulls = topic clusters grouped by first meaningful keyword from the topic label. "
     "Solid edges = within-cluster links · dashed edges = cross-cluster links. "
-    "Toggle hulls on/off with the button in the bottom-left of the graph."
+    "Gold ring = Study Path topic (minimum set for full coverage). "
+    "Toggle hulls/study path with buttons in the bottom-left of the graph."
 )

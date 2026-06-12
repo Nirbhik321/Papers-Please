@@ -17,7 +17,7 @@ import numpy as np
 import pdfplumber
 import pytesseract
 import fitz  # PyMuPDF — fast page-to-image
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -110,6 +110,22 @@ def _page_to_array(page: fitz.Page, dpi: int) -> np.ndarray:
     return arr
 
 
+def _preprocess_for_ocr(gray: np.ndarray) -> np.ndarray:
+    """
+    Improve OCR accuracy on low-quality / shadowed scans.
+
+    Pipeline (Pillow-only, no new dependencies):
+      1. autocontrast  — stretches the histogram to fill 0-255, fixes washed-out scans
+      2. sharpen       — enhances edge contrast so character boundaries are crisper
+      3. median filter — kills isolated salt-and-pepper noise without blurring text strokes
+    """
+    pil = Image.fromarray(gray)
+    pil = ImageOps.autocontrast(pil, cutoff=2)
+    pil = ImageEnhance.Sharpness(pil).enhance(1.5)
+    pil = pil.filter(ImageFilter.MedianFilter(size=3))
+    return np.array(pil)
+
+
 def _ocr_page_to_rows(gray: np.ndarray) -> list[list[str]]:
     """
     Use Tesseract image_to_data (PSM 6) to get word-level bounding boxes,
@@ -121,6 +137,7 @@ def _ocr_page_to_rows(gray: np.ndarray) -> list[list[str]]:
     Using fixed proportions avoids the column-detection failure that occurs
     when page headers or footers skew the gap-based auto-detection.
     """
+    gray = _preprocess_for_ocr(gray)
     pil = Image.fromarray(gray)
     page_w = gray.shape[1]
 
@@ -249,7 +266,7 @@ MONTH_MAP = {
 
 def parse_content_metadata(rows: list[list[str]]) -> dict:
     """
-    Extract subject_code, subject_name, month, year from the extracted table rows.
+    Extract subject_code, subject_name, month, year, exam_type from the extracted table rows.
 
     VTU papers always start with a standard header block:
       Row N:   "Fifth Semester B.E./B.Tech. Degree Examination, Dec.2024/Jan.2025"
@@ -257,7 +274,13 @@ def parse_content_metadata(rows: list[list[str]]) -> dict:
 
     This is the fallback when the filename carries no useful metadata.
     """
-    meta: dict = {"subject_code": None, "subject_name": None, "month": None, "year": None}
+    meta: dict = {
+        "subject_code": None,
+        "subject_name": None,
+        "month": None,
+        "year": None,
+        "exam_type": "regular",
+    }
 
     # Reverse map: subject name → code (case-insensitive partial match)
     name_to_code = {v.lower(): k for k, v in VTU_SUBJECT_MAP.items()}
@@ -269,8 +292,14 @@ def parse_content_metadata(rows: list[list[str]]) -> dict:
         if not text:
             continue
 
+        text_lower = text.lower()
+
+        # ── Model Question Paper detection ────────────────────────────────────
+        if "model question paper" in text_lower or "model q. paper" in text_lower or "model q paper" in text_lower:
+            meta["exam_type"] = "mqp"
+
         # ── Date / exam line ──────────────────────────────────────────────────
-        if "examination" in text.lower() or "degree exam" in text.lower():
+        if "examination" in text_lower or "degree exam" in text_lower:
             found_exam_line = True
             # Year: take the maximum 4-digit year in the line
             years = re.findall(r"\b(20\d{2}|19\d{2})\b", text)
@@ -300,9 +329,9 @@ def parse_content_metadata(rows: list[list[str]]) -> dict:
                             meta["subject_code"] = code
                             break
 
-        # ── Inline subject code (e.g. "BCS502" anywhere in header rows) ───────
+        # ── Inline subject code (e.g. "BCS502" or "BAI501" anywhere in header rows) ──
         if not meta["subject_code"]:
-            code_match = re.search(r"\b(BCS\d{3}[A-Z]?)\b", text, re.IGNORECASE)
+            code_match = re.search(r"\b(B[A-Z]{2}\d{3}[A-Z]?)\b", text, re.IGNORECASE)
             if code_match:
                 code = code_match.group(1).upper()
                 meta["subject_code"] = code
@@ -313,22 +342,26 @@ def parse_content_metadata(rows: list[list[str]]) -> dict:
 
 def parse_filename_metadata(filename: str) -> dict:
     """
-    Extract subject_code, subject_name, month, year from VTU filename.
+    Extract subject_code, subject_name, month, year, exam_type from VTU filename.
     Examples:
-      'JAN 2025 BCS502.pdf'               → {code: BCS502, name: Computer Networks, month: January, year: 2025}
-      'july 2025 BCS502.pdf'              → {code: BCS502, name: Computer Networks, month: July, year: 2025}
-      'BCS503 mqp 2022-2023.pdf'          → {code: BCS503, name: TOC, month: None, year: 2023}
+      'JAN 2025 BCS502.pdf'               → {code: BCS502, month: January, year: 2025, exam_type: regular}
+      'july 2025 BCS502.pdf'              → {code: BCS502, month: July, year: 2025, exam_type: regular}
+      'BCS503 mqp 2022-2023.pdf'          → {code: BCS503, year: 2023, exam_type: mqp}
+      'BAI501 model paper 2024.pdf'       → {code: BAI501, year: 2024, exam_type: mqp}
+      'BEE654B_2024.pdf'                  → {code: BEE654B, year: 2024, exam_type: regular}
     """
     stem = Path(filename).stem
     text = stem.replace("_", " ").replace("-", " ")
 
-    # Subject code
-    code_match = re.search(r"\b(BCS\d{3}[A-Z]?)\b", stem, re.IGNORECASE)
+    # Subject code — matches all VTU 2022 scheme branch prefixes
+    # Use `text` (underscores/dashes replaced by spaces) so \b word boundaries work
+    code_match = re.search(r"\b(B[A-Z]{2}\d{3}[A-Z]?)\b", text, re.IGNORECASE)
     subject_code = code_match.group(1).upper() if code_match else "UNKNOWN"
     subject_name = VTU_SUBJECT_MAP.get(subject_code, subject_code)
 
     # Year — take the latest 4-digit year found
-    years = re.findall(r"\b(20\d{2}|19\d{2})\b", text)
+    # Use negative lookaround instead of \b so "JAN2025" and "2024-25" are matched
+    years = re.findall(r"(?<!\d)(20\d{2}|19\d{2})(?!\d)", text)
     year = max(int(y) for y in years) if years else None
     if not year:
         two_digit = re.search(r"\b([2-9]\d)\b", text)
@@ -344,9 +377,17 @@ def parse_filename_metadata(filename: str) -> dict:
             month = full
             break
 
+    # Exam type — detect MQP / model question paper from filename
+    exam_type = "regular"
+    if re.search(r"\b(mqp|model[\s_]q|model[\s_]question|model[\s_]paper)\b", text, re.IGNORECASE):
+        exam_type = "mqp"
+    elif re.search(r"\bmodel\b", text, re.IGNORECASE):
+        exam_type = "mqp"
+
     return {
         "subject_code": subject_code,
         "subject_name": subject_name,
         "month": month,
         "year": year,
+        "exam_type": exam_type,
     }
