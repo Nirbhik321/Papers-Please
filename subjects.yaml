@@ -1,21 +1,196 @@
-# VTU Subject Map — edit this file to add new subjects, semesters, or branches.
+# VTU 2022 Scheme — Computer Science & Allied Branches
+# Covers all computer-stream B.E. programmes: CSE, ISE, AIML, AIDS, and allied streams.
+# Semesters 1 through 6 (2022 scheme, effective from academic year 2023-24).
+#
 # Format: "SUBJECT_CODE": "Subject Name"
-# The app loads this at startup. No code changes needed to add new subjects.
+# Papers-Please reads this file at startup. To add a new subject, just add a line below.
+# No code changes required.
+#
+# Key branch prefixes
+#   BCS  — Computer Science & Engineering (CSE)
+#   BIS  — Information Science & Engineering (ISE)
+#   BAI  — Artificial Intelligence & Machine Learning (AIML)
+#   BAD  — Artificial Intelligence & Data Science (AIDS)
+#   BCM  — Computer & Communication Engineering
+#   BCB  — Computer Science & Business Systems
+#   BCI  — CSE (AI & ML specialisation)
+#   BCD  — CSE (Data Science specialisation)
+#   BCY  — CSE (Cyber Security specialisation)
+#   BCO  — CSE (IoT specialisation)
+#   BCX  — Math code common to CSE/AIDS/AIML (sem 3)
 
-# ── 5th Semester B.E. (CS) ────────────────────────────────────────────────────
-BCS501: Software Engineering
+
+# ── SEMESTER 1 — Common to all CSE Stream ─────────────────────────────────────
+BMATM101: Mathematics-I for CSE Stream
+BPHYS102: Engineering Physics
+BPOPS103: Problem Solving Through Programming
+BESCK104A: Introduction to Civil Engineering
+BESCK104B: Introduction to Electrical Engineering
+BESCK104C: Introduction to Electronics and Communication Engineering
+BESCK104D: Introduction to Mechanical Engineering
+BESCK104E: Introduction to C Programming
+BPLCK105A: Introduction to Web Programming
+BPLCK105B: Introduction to Python Programming
+BPLCK105C: Basics of Java Programming
+BPLCK105D: Introduction to C++ Programming
+BETCK105A: Smart Materials and Systems
+BETCK105E: Renewable Energy Sources
+BETCK105F: Waste Management
+BETCK105G: Internet of Things
+BETCK105I: Introduction to Cyber Security
+BETCK105J: Introduction to Embedded Systems
+BPHYP106: Engineering Physics Lab
+BCPKL107: Computer Programming Lab
+BSFLH108: Scientific Foundations of Health
+
+
+# ── SEMESTER 2 — Common to all CSE Stream ─────────────────────────────────────
+BMATM201: Mathematics-II for CSE Stream
+BPOPS203: Principles of Programming Using C
+BESCK204A: Introduction to Civil Engineering
+BESCK204B: Introduction to Electrical Engineering
+BESCK204C: Introduction to Electronics and Communication Engineering
+BESCK204D: Introduction to Mechanical Engineering
+BPLCK205A: Introduction to Web Programming
+BPLCK205B: Introduction to Python Programming
+BPLCK205C: Basics of Java Programming
+BPLCK205D: Introduction to C++ Programming
+BETCK205A: Smart Materials and Systems
+BIDTK209: Innovation and Design Thinking
+
+
+# ── SEMESTER 3 — Common to CSE / ISE / AIML / AIDS ───────────────────────────
+BCX301: Mathematics for Computer Science (AIML/AIDS)
+BCS301: Mathematics for Computer Science (CSE/ISE)
+BCS302: Digital Design and Computer Organization
+BCS303: Operating Systems
+BCS304: Data Structures and Applications
+BCSL305: Data Structures Lab
+BCS306A: Object Oriented Programming with Java
+BCS306B: Object Oriented Programming with C++
+BSCK307: Social Connect and Responsibility
+BCS358A: Data Analytics with Excel
+BCS358B: R Programming
+BCS358C: Project Management with Git
+BCS358D: Data Visualization with Python
+
+
+# ── SEMESTER 4 — Common to CSE / ISE / AIML / AIDS ───────────────────────────
+BCS401: Analysis and Design of Algorithms
+BCS402: Microcontrollers
+BCS403: Database Management Systems
+BCSL404: Analysis and Design of Algorithms Lab
+BCS405A: Discrete Mathematical Structures
+BCS405B: Graph Theory
+BCS405C: Optimization Techniques
+BCS405D: Linear Algebra
+BBOC407: Biology for Computer Engineers
+BUHK408: Universal Human Values
+BCS456A: Green IT and Sustainability
+BCS456B: Capacity Planning for IT
+BCS456C: UI/UX Design
+BCSL456D: Technical Writing using LaTeX
+
+
+# ── SEMESTER 5 — CSE (Computer Science & Engineering) ────────────────────────
+BCS501: Software Engineering and Project Management
 BCS502: Computer Networks
 BCS503: Theory of Computation
-BCS504: Design and Analysis of Algorithms
-BCS505: Database Management Systems
-BCS506: Operating Systems
-BCS507: Computer Organization
-
-# ── 5th Semester Electives (CS) ───────────────────────────────────────────────
+BCSL504: Web Technology Lab
+BCS508: Environmental Studies and E-Waste Management
+BRMK557: Research Methodology and IPR
+BCS586: Mini Project
+# Professional Electives — Sem 5 CSE (BCS515x)
+BCS515A: Cloud Computing
+BCS515B: Cryptography and Network Security
+BCS515C: Fundamentals of Artificial Intelligence
 BCS515D: Distributed Systems
-BCS516D: Cloud Computing
-BCS517D: Machine Learning
-BCS518D: Artificial Intelligence
-BCS519D: Data Science
-BCS521D: Internet of Things
-BCS522D: Blockchain Technology
+BCS515E: Internet of Things
+BCS515F: Introduction to Machine Learning
+BCS515G: Agile Technology
+BCS515H: Blockchain Technology
+
+
+# ── SEMESTER 5 — ISE (Information Science & Engineering) ─────────────────────
+BIS501: Software Engineering and Project Management
+BIS502: Computer Networks
+BIS503: Theory of Computation
+BISL504: Data Visualization Lab
+BIS515A: Cloud Computing
+BIS515B: Cryptography and Network Security
+BIS515C: Fundamentals of Artificial Intelligence
+BIS515D: Distributed Systems
+BIS515E: Internet of Things
+BIS515F: Big Data Analytics
+
+
+# ── SEMESTER 5 — AIML (Artificial Intelligence & Machine Learning) ────────────
+BAI501: Software Engineering and Project Management
+BAI502: Computer Networks
+BAI503: Theory of Computation
+BAIL504: Data Visualization Lab
+BAI515A: Computer Vision
+BAI515B: Natural Language Processing
+BAI515C: Reinforcement Learning
+BAI515D: Deep Learning Fundamentals
+BAI515E: Speech and Audio Processing
+
+
+# ── SEMESTER 5 — AIDS (Artificial Intelligence & Data Science) ───────────────
+BAD501: Software Engineering and Project Management
+BAD502: Computer Networks
+BAD503: Theory of Computation
+BADL504: Data Visualization Lab
+BAD515A: Big Data Analytics
+BAD515B: Data Warehousing and Mining
+BAD515C: Cloud Computing for Data Science
+BAD515D: Natural Language Processing
+
+
+# ── SEMESTER 6 — CSE (Computer Science & Engineering) ────────────────────────
+BCS601: Cloud Computing
+BCS602: Machine Learning
+BCSL606: Machine Learning Lab
+BCS685: Project Phase I
+# Professional Electives — Sem 6 CSE (BCS613x)
+BCS613A: Agile Technology
+BCS613B: Advanced Java Programming
+BCS613C: Advanced Computer Architecture
+BCS613D: Data Science and Visualization
+BCS613E: Compiler Design
+BCS613F: Information Security
+# Open Electives — Sem 6 CSE (for students from other branches)
+BCS651: Introduction to Data Structures
+BCS652: Introduction to Database Management Systems
+BCS653: Introduction to Cyber Security
+BCS654: Programming in Java
+
+
+# ── SEMESTER 6 — ISE (Information Science & Engineering) ─────────────────────
+BIS601: Full Stack Development
+# (BCS602 Machine Learning and BCSL606 ML Lab shared with CSE)
+BIS613A: Information Retrieval
+BIS613B: Multimedia Technologies
+BIS613C: Software Testing and Quality Assurance
+BIS613D: Mobile Application Development
+
+
+# ── SEMESTER 6 — AIML (Artificial Intelligence & Machine Learning) ────────────
+BAI601: Deep Learning
+BAI602: Natural Language Processing
+BAIL606: Deep Learning Lab
+BAI613A: Computer Vision
+BAI613B: Reinforcement Learning
+BAI613C: AI for Healthcare
+BAI613D: AI Ethics and Fairness
+BAI685: Project Phase I
+
+
+# ── SEMESTER 6 — AIDS (Artificial Intelligence & Data Science) ───────────────
+BAD601: Big Data Analytics
+BAD602: Deep Learning
+BADL606: Big Data Lab
+BAD613A: Data Warehousing and Mining
+BAD613B: Cloud Computing for Data Science
+BAD613C: Social Media Analytics
+BAD685: Project Phase I
