@@ -9,6 +9,7 @@ Strategy:
 """
 
 import re
+import yaml
 from pathlib import Path
 from typing import Optional
 
@@ -200,7 +201,9 @@ def _ocr_page_to_rows(gray: np.ndarray) -> list[list[str]]:
 
 # ── Metadata extraction from filename ─────────────────────────────────────────
 
-VTU_SUBJECT_MAP = {
+# ── Subject map — loaded from subjects.yaml, falls back to hardcoded ──────────
+
+_HARDCODED_SUBJECT_MAP = {
     "BCS501": "Software Engineering",
     "BCS502": "Computer Networks",
     "BCS503": "Theory of Computation",
@@ -216,6 +219,25 @@ VTU_SUBJECT_MAP = {
     "BCS521D": "Internet of Things",
     "BCS522D": "Blockchain Technology",
 }
+
+
+def _load_subject_map() -> dict[str, str]:
+    """Load subject map from subjects.yaml next to the project root. Falls back
+    to the hardcoded map if the file is missing or unparseable."""
+    yaml_path = Path(__file__).parent.parent / "subjects.yaml"
+    if yaml_path.exists():
+        try:
+            raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+            loaded = {str(k).upper(): str(v) for k, v in raw.items()
+                      if not str(k).startswith("#")}
+            if loaded:
+                return loaded
+        except Exception:
+            pass
+    return _HARDCODED_SUBJECT_MAP
+
+
+VTU_SUBJECT_MAP: dict[str, str] = _load_subject_map()
 
 MONTH_MAP = {
     "jan": "January", "feb": "February", "mar": "March", "apr": "April",

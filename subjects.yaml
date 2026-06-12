@@ -1,0 +1,21 @@
+# VTU Subject Map — edit this file to add new subjects, semesters, or branches.
+# Format: "SUBJECT_CODE": "Subject Name"
+# The app loads this at startup. No code changes needed to add new subjects.
+
+# ── 5th Semester B.E. (CS) ────────────────────────────────────────────────────
+BCS501: Software Engineering
+BCS502: Computer Networks
+BCS503: Theory of Computation
+BCS504: Design and Analysis of Algorithms
+BCS505: Database Management Systems
+BCS506: Operating Systems
+BCS507: Computer Organization
+
+# ── 5th Semester Electives (CS) ───────────────────────────────────────────────
+BCS515D: Distributed Systems
+BCS516D: Cloud Computing
+BCS517D: Machine Learning
+BCS518D: Artificial Intelligence
+BCS519D: Data Science
+BCS521D: Internet of Things
+BCS522D: Blockchain Technology

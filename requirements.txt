@@ -22,5 +22,8 @@ pandas>=2.2.0
 # PDF export (cheat sheet)
 fpdf2>=2.8.0
 
+# Config parsing (subjects.yaml)
+PyYAML>=6.0
+
 # Web UI
 streamlit>=1.40.0
