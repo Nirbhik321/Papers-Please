@@ -1,3 +1,6 @@
+# ── Reports, research papers, LaTeX files (not part of the app) ──────────────
+reports/
+
 # ── Data (may contain copyrighted papers; fully regenerable) ──────────────────
 data/
 
