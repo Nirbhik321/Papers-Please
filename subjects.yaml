@@ -169,28 +169,51 @@ BCS654: Programming in Java
 # ── SEMESTER 6 — ISE (Information Science & Engineering) ─────────────────────
 BIS601: Full Stack Development
 # (BCS602 Machine Learning and BCSL606 ML Lab shared with CSE)
+# Professional Electives — Sem 6 ISE (BIS613x)
 BIS613A: Information Retrieval
-BIS613B: Multimedia Technologies
+BIS613B: Internet of Things
 BIS613C: Software Testing and Quality Assurance
-BIS613D: Mobile Application Development
+BIS613D: Cloud Computing and Security
+# Skill Enhancement Course — Sem 6 ISE
+BISL657A: TOSCA - Automated Software Testing
 
 
 # ── SEMESTER 6 — AIML (Artificial Intelligence & Machine Learning) ────────────
-BAI601: Deep Learning
-BAI602: Natural Language Processing
-BAIL606: Deep Learning Lab
-BAI613A: Computer Vision
+BAI601: Natural Language Processing
+BAIL606: Machine Learning Lab
+BAI685: Project Phase I
+# Professional Electives — Sem 6 AIML (BAI613x)
+BAI613A: Human Centred AI
 BAI613B: Reinforcement Learning
 BAI613C: AI for Healthcare
-BAI613D: AI Ethics and Fairness
-BAI685: Project Phase I
+BAI613D: Time Series Analysis
 
 
 # ── SEMESTER 6 — AIDS (Artificial Intelligence & Data Science) ───────────────
 BAD601: Big Data Analytics
-BAD602: Deep Learning
-BADL606: Big Data Lab
-BAD613A: Data Warehousing and Mining
-BAD613B: Cloud Computing for Data Science
-BAD613C: Social Media Analytics
+BADL606: Machine Learning Lab
 BAD685: Project Phase I
+# Professional Electives — Sem 6 AIDS (BAD613x)
+BAD613A: Data Warehousing and Mining
+BAD613B: Natural Language Processing
+BAD613C: Social Media Analytics
+BAD613D: Exploratory Data Analysis
+
+
+# ── SEMESTER 6 — Data Science (BDS branch) ───────────────────────────────────
+BDS602: Artificial Intelligence and Machine Learning
+BDS613B: Exploratory Data Analysis
+
+
+# ── SEMESTER 6 — Open Electives (cross-branch, available to all CS students) ─
+# CS students choose ONE open elective from departments OUTSIDE their own.
+# These codes from EEE, Civil, Mech, and other boards commonly appear on papers.
+BEE654B: Technologies of Renewable Energy Sources
+BCV654A: Water Conservation and Rain Water Harvesting
+BCV654C: Integrated Waste Management for a Smart City
+BME654B: Renewable Energy Power Plants
+BIS654C: Mobile Application Development
+BC0601: Microcontrollers and Embedded Systems
+# Skill Enhancement Courses — Sem 6 (cross-branch)
+BCGL657A: Mobile Application Development with Flutter
+
