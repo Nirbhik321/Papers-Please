@@ -132,8 +132,10 @@ for subj in subjects:
 
     year_range = str(min_yr) if min_yr == max_yr else f"{min_yr}–{max_yr}"
     mode_badge = "Single Paper" if single_paper else f"{paper_count} papers"
+    mqp_count  = subj.get("mqp_count") or 0
+    mqp_badge  = "  🗒️ MQP" if mqp_count > 0 else ""
 
-    card_title = f"**{subject_code}** — {subject_name}  |  {mode_badge}  |  {year_range}"
+    card_title = f"**{subject_code}** — {subject_name}  |  {mode_badge}  |  {year_range}{mqp_badge}"
 
     with st.expander(card_title, expanded=True):
 
@@ -142,6 +144,13 @@ for subj in subjects:
                 "Only 1 paper available. Showing topic structure and marks breakdown. "
                 "Upload more papers of the same subject to unlock repeat-pattern analysis.",
                 icon="📋",
+            )
+
+        if mqp_count > 0:
+            st.info(
+                f"**{mqp_count} Model Question Paper{'s' if mqp_count > 1 else ''} included.** "
+                "MQP questions carry full weight — they are curated to cover the entire syllabus.",
+                icon="🗒️",
             )
 
         # Load analysis

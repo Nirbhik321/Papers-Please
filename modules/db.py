@@ -33,6 +33,7 @@ def init_db(db_path: str) -> None:
             month           TEXT,
             year            INTEGER,
             pdf_type        TEXT,           -- 'native' or 'scanned'
+            exam_type       TEXT DEFAULT 'regular',  -- 'regular' or 'mqp'
             total_pages     INTEGER,
             uploaded_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(filename)
@@ -82,6 +83,11 @@ def init_db(db_path: str) -> None:
             ON appearances(canonical_id);
     """)
     conn.commit()
+    # Migration: add exam_type column if it doesn't exist yet (upgrading old DBs)
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(papers)").fetchall()]
+    if "exam_type" not in cols:
+        conn.execute("ALTER TABLE papers ADD COLUMN exam_type TEXT DEFAULT 'regular'")
+        conn.commit()
     conn.close()
 
 
@@ -93,11 +99,11 @@ def insert_paper(db_path: str, paper: dict) -> Optional[int]:
     try:
         cur = conn.execute(
             """INSERT OR IGNORE INTO papers
-               (filename, subject_code, subject_name, month, year, pdf_type, total_pages)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (filename, subject_code, subject_name, month, year, pdf_type, exam_type, total_pages)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (paper["filename"], paper["subject_code"], paper["subject_name"],
              paper.get("month"), paper.get("year"), paper.get("pdf_type"),
-             paper.get("total_pages")),
+             paper.get("exam_type", "regular"), paper.get("total_pages")),
         )
         conn.commit()
         if cur.lastrowid == 0:
@@ -254,7 +260,8 @@ def get_distinct_subjects(db_path: str) -> list[dict]:
         """SELECT DISTINCT subject_code, subject_name,
                   COUNT(*) as paper_count,
                   MIN(year) as min_year,
-                  MAX(year) as max_year
+                  MAX(year) as max_year,
+                  SUM(CASE WHEN exam_type = 'mqp' THEN 1 ELSE 0 END) as mqp_count
            FROM papers
            GROUP BY subject_code
            ORDER BY subject_code"""

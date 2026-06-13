@@ -1,3 +1,9 @@
+# ── Reports, research papers, LaTeX files (not part of the app) ──────────────
+reports/
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+tests/
+
 # ── Data (may contain copyrighted papers; fully regenerable) ──────────────────
 data/
 

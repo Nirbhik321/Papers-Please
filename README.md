@@ -24,6 +24,7 @@ Upload past VTU question papers. Get a ranked, module-wise breakdown of what to 
 - [Problems We Faced and How We Solved Them](#problems-we-faced-and-how-we-solved-them)
 - [What We Learned](#what-we-learned)
 - [Setup and Usage](#setup-and-usage)
+- [Subject Map](#subject-map--adding-new-subjects)
 - [Limitations and Future Work](#limitations-and-future-work)
 
 ---
@@ -152,10 +153,11 @@ Why not `all-MiniLM-L6-v2` (the common default)? That model is trained on divers
 
 All embeddings are **L2-normalised**, so cosine similarity reduces to a dot product — making similarity computation very efficient.
 
-### Centroid-Based Greedy Clustering (Deduplication)
+### Centroid-Based Greedy Clustering with Refinement Pass (Deduplication)
 
-This is the core algorithm. It groups semantically similar questions into "canonical" question clusters:
+This is the core algorithm. It groups semantically similar questions into "canonical" question clusters using a **two-pass approach** for order-independent stability:
 
+**Pass 1 — Greedy seeding:**
 ```
 For each new question embedding:
     Compare against the centroid (mean) of every existing cluster
@@ -164,6 +166,17 @@ For each new question embedding:
     Else:
         Start a new cluster with this question as seed
 ```
+
+**Pass 2 — Refinement:**
+```
+Recompute all centroids from scratch (removes incremental-mean drift)
+For each question:
+    Reassign it to the nearest centroid via matrix multiply (N x K dot product)
+    If best similarity < 0.70: keep as singleton
+Drop any clusters that became empty
+```
+
+The second pass corrects cases where the greedy insertion order caused a question to land in a slightly suboptimal cluster. It also eliminates numerical drift from the incremental centroid updates.
 
 **Why centroid-based?** Two questions A and B might not be directly similar to each other, but both might cluster around a centroid C. Comparing against centroids catches these transitive similarities.
 
@@ -452,16 +465,38 @@ print(summary)
 
 ---
 
+## Subject Map — Adding New Subjects
+
+Papers Please ships with a \subjects.yaml\ file in the project root containing **145+ subjects** across all VTU 2022 scheme computer-science programmes, semesters 1-6:
+
+| Branch | Prefix | Semesters covered |
+|--------|--------|-------------------|
+| Computer Science and Engineering (CSE) | \BCS\ | 1-6 |
+| Information Science and Engineering (ISE) | \BIS\ | 5-6 |
+| AI and Machine Learning (AIML) | \BAI\ | 5-6 |
+| AI and Data Science (AIDS) | \BAD\ | 5-6 |
+| Data Science (DS) | \BDS\ | 6 |
+| Cross-branch open electives | \BEE\, \BCV\, \BME\, etc. | 6 |
+
+**Adding a new subject requires zero code changes.** Just open \subjects.yaml\ and add a line:
+
+\\yaml
+BCS303: Operating Systems
+BEE654B: Technologies of Renewable Energy Sources
+\
+The app reloads the map at startup and falls back to the hardcoded defaults if the file is missing.
+
+---
+
 ## Limitations and Future Work
 
 | Limitation | Impact | Possible improvement |
 |-----------|--------|---------------------|
-| Only VTU BCS5xx subjects in the subject map | Other semesters/branches need manual map extension | Config-driven subject map or auto-detection from PDF headers |
 | Fixed OCR column splits assume VTU A4 layout | Non-VTU papers will mis-bucket words | Adaptive column detection with fallback to fixed splits |
-| Greedy clustering is order-dependent | Cluster assignments can vary with processing order | Post-processing refinement pass or iterative re-assignment |
 | Tesseract struggles with low-quality scans | Heavy shadows, rotation, coffee stains degrade OCR | Pre-processing with deskew, contrast normalisation |
-| Single-paper subjects show no frequency data | Rankings fall back to marks-based sorting (still useful) | Show confidence intervals or flag as "insufficient data" |
+| Single-paper subjects show no frequency data | Rankings fall back to marks-based sorting (still useful) | Show confidence intervals or flag as insufficient data |
 | No cross-module similarity linking | Same topic in different modules treated as separate | By design (VTU assigns topics to modules), but could be a future option |
+| Local-only deployment | No sharing between students or study groups | Web deployment with multi-user sessions and shared question banks |
 
 ---
 

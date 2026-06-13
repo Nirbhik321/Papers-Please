@@ -109,7 +109,7 @@ def deduplicate(
 
     embeddings = embedder.encode(clean_texts)   # shape (N, 384), L2-normalised
 
-    # ── Centroid-based greedy clustering ──────────────────────────────────────
+    # ── Centroid-based greedy clustering  (pass 1) ────────────────────────────
     # For each new question, compare against the centroid of every existing
     # cluster.  Assign to the most similar cluster if sim >= threshold,
     # otherwise start a new cluster.
@@ -145,6 +145,40 @@ def deduplicate(
             # Start a new cluster
             cluster_members.append([i])
             cluster_centroids.append(vec.copy())
+
+    # ── Refinement pass (pass 2) ───────────────────────────────────────────────
+    # Recompute centroids from scratch (removes incremental-mean drift), then
+    # reassign every item to the nearest centroid.  Items whose best centroid
+    # similarity is below the threshold remain singletons instead of being
+    # forced into an existing cluster.  One pass is enough for stability in
+    # practice (academic text clusters are rarely ambiguous at 0.70).
+
+    def _recompute_centroids(members: list[list[int]]) -> list[np.ndarray]:
+        centroids = []
+        for idxs in members:
+            raw = embeddings[idxs].mean(axis=0)
+            norm = np.linalg.norm(raw)
+            centroids.append(raw / norm if norm > 0 else raw)
+        return centroids
+
+    cluster_centroids = _recompute_centroids(cluster_members)
+    centroid_matrix = np.stack(cluster_centroids)   # (K, D)
+
+    # Cosine sims for all items against all centroids in one matrix multiply
+    sims_matrix = embeddings @ centroid_matrix.T     # (N, K)
+
+    new_members: list[list[int]] = [[] for _ in cluster_members]
+    for i in range(n):
+        best_ci  = int(np.argmax(sims_matrix[i]))
+        best_sim = float(sims_matrix[i, best_ci])
+        if best_sim >= threshold:
+            new_members[best_ci].append(i)
+        else:
+            # No cluster is close enough — keep as its own singleton
+            new_members.append([i])
+
+    # Drop empty clusters that lost all their members to better fits
+    cluster_members = [m for m in new_members if m]
 
     # ── Build canonical records ────────────────────────────────────────────────
     canonicals: list[dict] = []

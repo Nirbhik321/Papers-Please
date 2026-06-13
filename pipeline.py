@@ -93,6 +93,7 @@ def run(
             "subject_name": _best(filename_meta["subject_name"], content_meta["subject_name"], ("UNKNOWN", None, "")),
             "month":        filename_meta["month"] or content_meta["month"],
             "year":         filename_meta["year"]  or content_meta["year"],
+            "exam_type":    "mqp" if "mqp" in (filename_meta.get("exam_type"), content_meta.get("exam_type")) else "regular",
         }
         # Final fallback: if name is still unset, use subject code as name
         if not meta["subject_name"] or meta["subject_name"] == meta["subject_code"]:
