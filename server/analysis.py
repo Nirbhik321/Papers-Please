@@ -11,7 +11,6 @@ so reading a subject never runs any of this work.
 import json
 import secrets
 import tempfile
-import threading
 from collections import Counter
 from pathlib import Path
 
@@ -70,7 +69,7 @@ def rebuild_subject(code: str, relabel: bool = False) -> dict | None:
                 max_year=max(years, default=None), data=json.dumps(data), cheatsheet_pdf=pdf,
                 questions_csv=csv_text, updated_at=utcnow(),
             ))
-    _revalidate_async(["/", f"/s/{code}"])
+    _revalidate(["/", f"/s/{code}"])
     return data
 
 
@@ -197,16 +196,16 @@ def _exports(data: dict, ladders: dict) -> tuple[bytes, str]:
     return pdf, csv_text
 
 
-def _revalidate_async(paths: list[str]) -> None:
-    """Tell the Next.js site to refresh the affected pages (on-demand ISR)."""
+def _revalidate(paths: list[str]) -> None:
+    """Tell the Next.js site to refresh the affected pages (on-demand ISR).
+
+    Runs inline: rebuilds already happen on the worker thread (or the CLI),
+    never inside a student's request.
+    """
     if not settings.revalidate_url:
         return
-
-    def send():
-        try:
-            httpx.post(settings.revalidate_url, json={"paths": paths}, timeout=10,
-                       headers={"Authorization": f"Bearer {settings.revalidate_secret}"})
-        except Exception:
-            pass   # pages still refresh on their normal timer
-
-    threading.Thread(target=send, daemon=True).start()
+    try:
+        httpx.post(settings.revalidate_url, json={"paths": paths}, timeout=10,
+                   headers={"Authorization": f"Bearer {settings.revalidate_secret}"})
+    except Exception:
+        pass   # pages still refresh on their normal timer
