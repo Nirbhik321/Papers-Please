@@ -1,29 +1,35 @@
-# Papers Please — dependencies
+# Papers Please — API server + extraction pipeline
 # Install with: pip install -r requirements.txt
+# Sized for a 512 MB server: no PyTorch, no local LLM.
 
-# PDF handling
+# API
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+httpx>=0.27
+
+# Database (SQLite locally, Supabase Postgres in production)
+sqlalchemy>=2.0
+psycopg[binary]>=3.2
+
+# PDF handling + OCR
 pdfplumber>=0.11.0
-pymupdf>=1.24.0          # fitz — fast PDF-to-image for scanned PDFs
-
-# OCR + image processing
+pymupdf>=1.24.0
 pytesseract>=0.3.13
 Pillow>=11.0.0
 
-# NLP + embeddings
-sentence-transformers>=3.0.0
-
-# Ollama Python client (optional — for topic labelling)
-ollama>=0.3.0
-
-# Data
+# Embeddings (paraphrase-MiniLM-L6-v2 on ONNX Runtime)
+onnxruntime>=1.18
+tokenizers>=0.19
+huggingface_hub>=0.23
 numpy>=1.26.0
-pandas>=2.2.0
 
-# PDF export (cheat sheet)
+# Exports + config
 fpdf2>=2.8.0
-
-# Config parsing (subjects.yaml)
 PyYAML>=6.0
 
-# Web UI
-streamlit>=1.40.0
+# Optional: local topic labels with Ollama (not used on the free server)
+# ollama>=0.3.0
+
+# Tests
+pytest>=8.0
