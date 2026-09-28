@@ -117,7 +117,7 @@ def process_paper(pid: int) -> None:
         conn.execute(delete(sub_questions).where(sub_questions.c.paper_id == pid))
         conn.execute(insert(sub_questions), [
             {"paper_id": pid, "module_no": q["module_no"], "q_no": q["q_no"], "sub_q": q["sub_q"],
-             "is_or_alt": q["is_or_alt"], "text": q["text"][:2000], "marks": q.get("marks"),
+             "is_or_alt": q["is_or_alt"], "text": " ".join(q["text"].split())[:2000], "marks": q.get("marks"),
              "bloom_level": q.get("bloom_level"), "course_outcome": q.get("course_outcome")}
             for q in qs
         ])
