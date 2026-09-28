@@ -2,7 +2,8 @@
 main.py — the HTTP API.
 
   Public, read-only (served from precomputed snapshots, no heavy work):
-    GET  /healthz                              keep-alive ping target
+    GET  /healthz                              Render health check (touches nothing)
+    GET  /api/keepalive                        cron ping: keeps Render awake + Supabase active
     GET  /api/stats · /api/subjects · /api/catalog · /api/recent
     GET  /api/subjects/{code}                  everything the subject page needs
     GET  /api/subjects/{code}/cheatsheet.pdf · /questions.csv
@@ -88,6 +89,19 @@ def _code_or_404(code: str) -> str:
 
 @app.get("/healthz")
 def healthz():
+    """Render's health check — deliberately touches nothing, so a database blip can't restart the service."""
+    return {"ok": True}
+
+
+@app.get("/api/keepalive")
+def keepalive():
+    """Pinged by the Supabase cron job: keeps Render awake *and* counts as database
+    activity, so Supabase doesn't pause the free project after a quiet week."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(select(1))
+    except Exception:
+        raise HTTPException(503, "Database unavailable.")
     return {"ok": True}
 
 

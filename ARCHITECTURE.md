@@ -207,7 +207,8 @@ Dark mode follows the system setting, can be toggled, and is applied by an inlin
 
 | Method & path | Who | Purpose |
 |---|---|---|
-| `GET /healthz` | anyone | Keep-alive target; touches nothing |
+| `GET /healthz` | anyone | Render health check; touches nothing |
+| `GET /api/keepalive` | anyone | Cron ping target; runs `SELECT 1` so the database counts as active |
 | `GET /api/stats`, `/api/subjects`, `/api/catalog`, `/api/recent` | anyone | Lists for the home page |
 | `GET /api/subjects/{code}` | anyone | Snapshot JSON |
 | `GET /api/subjects/{code}/cheatsheet.pdf`, `/questions.csv` | anyone | Downloads |
@@ -293,9 +294,9 @@ Short topic labels. Uses a local Ollama model if one is running; otherwise (alwa
 | API + worker | Render (Docker, free) | 512 MB RAM → ONNX, one worker thread, one PDF at a time; 750 h/month covers one always-on service |
 | Database, file storage, moderator login | Supabase | Postgres via the **session pooler** (Render can't reach the IPv6-only direct host) |
 
-Render puts free services to sleep after 15 minutes without traffic. `supabase/migrations/20260928000100_keepalive_cron.sql` schedules, with `pg_cron` + `pg_net`:
+Render puts free services to sleep after 15 minutes without traffic, and Supabase pauses free projects after a week without database activity. `supabase/migrations/20260928000100_keepalive_cron.sql` schedules, with `pg_cron` + `pg_net`:
 
-- `keep-render-awake` — `*/6 * * * *`: GET `https://<service>.onrender.com/healthz` (cron works in whole minutes, so 6 minutes stands in for 6½).
+- `keep-render-awake` — `*/6 * * * *`: GET `https://<service>.onrender.com/api/keepalive`, which runs `SELECT 1` — so one ping keeps both Render and Supabase awake (cron works in whole minutes, so 6 minutes stands in for 6½).
 - `clear-cron-history` — `0 3 */3 * *`: deletes `cron.job_run_details` rows older than a day, so the history table stays small. `pg_net` removes its own stored responses after 6 hours.
 
 ---

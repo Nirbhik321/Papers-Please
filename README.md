@@ -513,7 +513,7 @@ The free-tier setup: **Vercel** (website) + **Render** (API) + **Supabase** (dat
    - Copy the **session pooler** connection string, the project URL, and the anon and service-role keys.
 2. **Render** — New → Blueprint → this repository (`render.yaml`). Fill in the environment variables:
    `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `ADMIN_EMAILS`, `TURNSTILE_SECRET_KEY`, `CORS_ORIGINS` (your Vercel URL), `SITE_URL`, `REVALIDATE_URL` (`<vercel url>/api/revalidate`), `REVALIDATE_SECRET`.
-3. **Keep-alive** — replace `YOUR-SERVICE` in `supabase/migrations/20260928000100_keepalive_cron.sql` with your Render hostname and run it in the Supabase SQL editor. It pings `/healthz` every 6 minutes so the free service never sleeps, and clears the cron history every 3 days.
+3. **Keep-alive** — replace `YOUR-SERVICE` in `supabase/migrations/20260928000100_keepalive_cron.sql` with your Render hostname and run it in the Supabase SQL editor. It pings `/api/keepalive` every 6 minutes — keeping the free Render service awake and giving Supabase the database activity it needs to not pause the project — and clears the cron history every 3 days.
 4. **Vercel** — import the repository with **Root Directory = `web`** and set `NEXT_PUBLIC_API_URL` (your Render URL), `REVALIDATE_SECRET`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 5. **Seed** — from your machine, point `DATABASE_URL`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` at production and run `python -m server.cli seed <folder>`, then `python -m server.cli rebuild` with `REVALIDATE_URL`/`REVALIDATE_SECRET` set so the site refreshes.
 

@@ -1,8 +1,10 @@
 -- Keep the Render free-tier API awake, and keep the cron history small.
 --
--- Render puts a free web service to sleep after 15 minutes without traffic.
--- Pinging /healthz every 6 minutes means it never sleeps (cron works in whole
--- minutes, so 6 min stands in for 6½). /healthz doesn't touch the database.
+-- Render puts a free web service to sleep after 15 minutes without traffic, and
+-- Supabase pauses a free project after a week without database activity.
+-- Pinging /api/keepalive every 6 minutes fixes both: the request keeps Render
+-- awake and the endpoint runs SELECT 1 against this database (cron works in
+-- whole minutes, so 6 min stands in for 6½).
 --
 -- BEFORE RUNNING: replace YOUR-SERVICE with your Render service's hostname.
 
@@ -13,11 +15,11 @@ create extension if not exists pg_net with schema extensions;
 select cron.unschedule(jobid) from cron.job
  where jobname in ('keep-render-awake', 'clear-cron-history');
 
--- Job 1: ping the API every 6 minutes
+-- Job 1: ping the API (and, through it, the database) every 6 minutes
 select cron.schedule(
   'keep-render-awake',
   '*/6 * * * *',
-  $$ select net.http_get(url := 'https://YOUR-SERVICE.onrender.com/healthz', timeout_milliseconds := 10000); $$
+  $$ select net.http_get(url := 'https://YOUR-SERVICE.onrender.com/api/keepalive', timeout_milliseconds := 10000); $$
 );
 
 -- Job 2: every 3 days at 03:00 UTC, clear cron run history (keeps the last day

@@ -101,3 +101,7 @@ def test_blocked_uploader(client, monkeypatch):
         from server.db import blocked_uploaders, engine
         with engine.begin() as conn:
             conn.execute(delete(blocked_uploaders))
+
+
+def test_keepalive_touches_the_database(client):
+    assert client.get("/api/keepalive").json() == {"ok": True}
