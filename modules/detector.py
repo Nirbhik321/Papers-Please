@@ -17,7 +17,7 @@ import numpy as np
 import pdfplumber
 import pytesseract
 import pymupdf as fitz  # PyMuPDF — fast page-to-image
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+from PIL import Image, ImageOps
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -126,21 +126,33 @@ def _page_to_array(page: fitz.Page, dpi: int) -> np.ndarray:
 
 def _preprocess_for_ocr(gray: np.ndarray) -> np.ndarray:
     """
-    Improve OCR accuracy on low-quality / shadowed scans.
+    Improve OCR accuracy on low-quality / washed-out scans: autocontrast stretches
+    the histogram to fill 0-255.
 
-    Pipeline (Pillow-only, no new dependencies):
-      1. autocontrast  — stretches the histogram to fill 0-255, fixes washed-out scans
-      2. sharpen       — enhances edge contrast so character boundaries are crisper
-      3. median filter — kills isolated salt-and-pepper noise without blurring text strokes
+    Measured on the 7 scanned papers in data/raw, autocontrast alone gave the most
+    sub-questions and marks read and the least OCR noise, for ~0.03 s/page. Adding
+    sharpen + a 3x3 median filter cost ~0.3 s/page (about 3 s/page on the free
+    server), didn't improve the text, and erased printed subject codes in headers.
     """
-    pil = Image.fromarray(gray)
-    pil = ImageOps.autocontrast(pil, cutoff=2)
-    pil = ImageEnhance.Sharpness(pil).enhance(1.5)
-    pil = pil.filter(ImageFilter.MedianFilter(size=3))
-    return np.array(pil)
+    return np.array(ImageOps.autocontrast(Image.fromarray(gray), cutoff=2))
 
 
-def _ocr_page_to_rows(gray: np.ndarray) -> list[list[str]]:
+def scanned_header_rows(pdf_path: str, top_fraction: float = 0.25) -> list[list[str]]:
+    """
+    OCR just the top of page 1, with no image clean-up, for reading the subject code.
+    Contrast stretching helps question text but can wash out the small printed code
+    in the header, so metadata gets a second look at the raw page.
+    """
+    try:
+        doc = fitz.open(pdf_path)
+        with doc:
+            gray = _page_to_array(doc[0], DPI)
+    except Exception:
+        return []
+    return _ocr_page_to_rows(gray[: int(gray.shape[0] * top_fraction)], preprocess=False)
+
+
+def _ocr_page_to_rows(gray: np.ndarray, preprocess: bool = True) -> list[list[str]]:
     """
     Use Tesseract image_to_data (PSM 6) to get word-level bounding boxes,
     then reconstruct the VTU table using FIXED proportional column boundaries.
@@ -151,7 +163,8 @@ def _ocr_page_to_rows(gray: np.ndarray) -> list[list[str]]:
     Using fixed proportions avoids the column-detection failure that occurs
     when page headers or footers skew the gap-based auto-detection.
     """
-    gray = _preprocess_for_ocr(gray)
+    if preprocess:
+        gray = _preprocess_for_ocr(gray)
     pil = Image.fromarray(gray)
     page_w = gray.shape[1]
 

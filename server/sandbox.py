@@ -79,6 +79,23 @@ def run_extraction(pdf_path: str, max_pages: int, timeout_s: int) -> dict:
 
 # ── Child side ─────────────────────────────────────────────────────────────────
 
+def _content_meta(detector, pdf_path: str, pdf_type: str, rows: list) -> dict:
+    """Subject/session from the paper itself."""
+    if pdf_type == "native":
+        # Native PDFs keep their header outside the question table — read it too
+        return detector.parse_content_metadata(detector.header_rows(pdf_path) + rows)
+    meta = detector.parse_content_metadata(rows)
+    if not meta.get("subject_code"):
+        # The printed code can be lost in the contrast-stretched OCR — try the raw header
+        raw = detector.parse_content_metadata(detector.scanned_header_rows(pdf_path))
+        if raw.get("subject_code"):
+            meta["subject_code"] = raw["subject_code"]
+            meta["subject_name"] = raw["subject_name"] or meta.get("subject_name")
+        for key in ("month", "year"):
+            meta[key] = meta.get(key) or raw.get(key)
+    return meta
+
+
 def _child(pdf_path: str, max_pages: int) -> dict:
     from PIL import Image
     Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
@@ -108,9 +125,7 @@ def _child(pdf_path: str, max_pages: int) -> dict:
         "pdf_type": pdf_type,
         "page_count": pages,
         "row_count": len(rows),
-        # Native PDFs keep their header outside the question table — read it too
-        "content_meta": detector.parse_content_metadata(
-            (detector.header_rows(pdf_path) if pdf_type == "native" else []) + rows),
+        "content_meta": _content_meta(detector, pdf_path, pdf_type, rows),
         "sub_questions": sub_questions,
     }
 
