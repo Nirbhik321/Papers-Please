@@ -40,5 +40,5 @@ export default async function SubjectPage(props: PageProps<"/s/[code]">) {
   const { code } = await props.params;
   if (code !== code.toUpperCase()) permanentRedirect(`/s/${code.toUpperCase()}`);
   const data = await load(code);
-  return <SubjectView data={data} />;
+  return <SubjectView key={data.code} data={data} />;
 }
