@@ -8,13 +8,18 @@ on every pipeline run.
 """
 
 import json
+import os
 import re
-import subprocess
+import time
 import urllib.error
 import urllib.request
 from collections import Counter
 
-_OLLAMA_BASE = "http://localhost:11434"
+# 127.0.0.1, not localhost: on Windows "localhost" tries ::1 first and a refused
+# connection costs ~1 s per address. OLLAMA_URL="" turns the LLM tier off entirely.
+_OLLAMA_BASE = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+_PROBE_TTL_S = 300
+_probe: tuple[float, str | None] | None = None   # (checked_at, model): one probe per 5 min, not per label
 
 # Preferred models in priority order
 _PREFERRED_MODELS = ["phi3:mini", "phi3", "llama3.2:3b", "mistral:7b", "llama2", "llama3.2"]
@@ -23,21 +28,30 @@ _PREFERRED_MODELS = ["phi3:mini", "phi3", "llama3.2:3b", "mistral:7b", "llama2",
 def _get_available_model() -> str | None:
     """
     Return the first installed Ollama model that matches our preference list.
-    Uses the REST API directly — no pydantic/ollama package required.
+    Uses the REST API directly — no pydantic/ollama package required. The answer
+    is cached, because a subject rebuild labels dozens of topics in a row.
     """
+    global _probe
+    if not _OLLAMA_BASE:
+        return None
+    now = time.monotonic()
+    if _probe and now - _probe[0] < _PROBE_TTL_S:
+        return _probe[1]
+    model = None
     try:
-        req = urllib.request.urlopen(f"{_OLLAMA_BASE}/api/tags", timeout=3)
-        data = json.loads(req.read().decode())
+        with urllib.request.urlopen(f"{_OLLAMA_BASE}/api/tags", timeout=1) as req:
+            data = json.loads(req.read().decode())
         installed = [m["name"] for m in data.get("models", [])]
         # Match against preference list by base name
         for preferred in _PREFERRED_MODELS:
             prefix = preferred.split(":")[0]
-            for actual in installed:
-                if actual.split(":")[0] == prefix:
-                    return actual
+            model = next((a for a in installed if a.split(":")[0] == prefix), None)
+            if model:
+                break
     except Exception:
         pass
-    return None
+    _probe = (now, model)
+    return model
 
 
 def generate_topic_label(question_texts: list[str]) -> str:
