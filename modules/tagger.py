@@ -121,6 +121,12 @@ _WITH_DIAGRAM = re.compile(
 _LIST_MARKER = re.compile(r"(?<![A-Za-z])(?:[a-d]|i{1,3}|iv)\)\s*", re.IGNORECASE)
 _TRAILING = re.compile(r"\s+(?:in\s+detail|in\s+brief|briefly|neatly|in\s+short)$", re.IGNORECASE)
 _CLAUSE_SPLIT = re.compile(r"[?.;:]\s*|,\s*|\s+(?:with|using|for\s+the\s+given|by\s+taking)\s+", re.IGNORECASE)
+_SUB_LABEL = re.compile(r"^[a-cA-C][.)]\s+")
+_WELL_FORMED = re.compile(
+    r"^(?:what|which|how|why|explain|define|describe|discuss|derive|compare|differentiate|distinguish|"
+    r"list|write|draw|illustrate|state|briefly|give|find|solve|design|develop|construct)\b",
+    re.IGNORECASE,
+)
 _SMALL = {"of", "and", "in", "for", "to", "on", "the", "a", "an", "vs", "or", "with", "by", "at"}
 
 
@@ -141,9 +147,12 @@ def _label_from_phrase(texts: list[str]) -> str | None:
     Fallback: pull the subject of the question out of its shortest wording —
     "What is data communication? List …" → "Data Communication".
     """
-    candidates = sorted((t for t in texts if len(t.strip()) >= 12), key=len) or texts
+    # Prefer well-formed questions ("Describe …") over OCR fragments, then the shortest
+    cleaned = [_SUB_LABEL.sub("", t.strip()) for t in texts]
+    candidates = sorted((t for t in cleaned if len(t) >= 12),
+                        key=lambda t: (0 if _WELL_FORMED.match(t) else 1, len(t))) or cleaned
     for text in candidates[:3]:
-        text = _LIST_MARKER.sub(" ", _WITH_DIAGRAM.sub("", text.strip()))
+        text = _LIST_MARKER.sub(" ", _WITH_DIAGRAM.sub("", text))
         for clause in _CLAUSE_SPLIT.split(text):
             clause = _TRAILING.sub("", _LEADING.sub("", clause.strip())).strip(" -()'\"")
             words = [w.strip("()'\"") for w in clause.split()]
