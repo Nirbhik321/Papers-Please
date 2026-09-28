@@ -76,6 +76,20 @@ def _extract_native(pdf_path: str) -> tuple[list[list[str]], bool]:
     return all_rows, True
 
 
+def header_rows(pdf_path: str, max_lines: int = 20) -> list[list[str]]:
+    """
+    The first lines of page 1 as single-cell rows. For native PDFs the header block
+    ("BCS502 … Model Question Paper … Computer Networks") sits outside the question
+    table, so table rows alone never show it to parse_content_metadata().
+    """
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            text = (pdf.pages[0].extract_text() or "") if pdf.pages else ""
+    except Exception:
+        return []
+    return [[line.strip()] for line in text.splitlines() if line.strip()][:max_lines]
+
+
 # ── Scanned extraction ─────────────────────────────────────────────────────────
 
 def _extract_scanned(pdf_path: str) -> list[list[str]]:
@@ -266,16 +280,37 @@ _OCR_CODE_RE = re.compile(r"(?<![A-Za-z0-9])([B8][A-Z]{1,5})([0-9SOIL]{3})([A-Z]
 _OCR_DIGITS = str.maketrans("SOIL", "5011")
 
 
-def find_subject_code(text: str) -> Optional[str]:
-    """An explicit subject code in `text`, tolerating common OCR digit mistakes."""
-    m = SUBJECT_CODE_RE.search(text)
+def _known_variant(code: str) -> Optional[str]:
+    """`code` if it's a real subject, else a real subject one stray OCR letter away
+    ("BCSS501" → "BCS501"), else None."""
+    if code in VTU_SUBJECT_MAP:
+        return code
+    m = re.fullmatch(r"B([A-Z]+)(\d{3})([A-Z]?)", code)
     if m:
-        return m.group(1).upper()
-    for m in _OCR_CODE_RE.finditer(text.upper()):
-        code = "B" + m.group(1)[1:] + m.group(2).translate(_OCR_DIGITS) + m.group(3)
-        if code in VTU_SUBJECT_MAP:
-            return code
+        letters, digits, suffix = m.groups()
+        for i in range(len(letters)):
+            candidate = f"B{letters[:i]}{letters[i + 1:]}{digits}{suffix}"
+            if candidate in VTU_SUBJECT_MAP:
+                return candidate
     return None
+
+
+def find_subject_code(text: str) -> Optional[str]:
+    """An explicit subject code in `text`, tolerating common OCR mistakes.
+
+    A real subject code (from subjects.yaml) is preferred; a well-formed but unknown
+    code is still returned so it can go to moderator review.
+    """
+    strict = [m.group(1).upper() for m in SUBJECT_CODE_RE.finditer(text)]
+    for code in strict:
+        known = _known_variant(code)
+        if known:
+            return known
+    for m in _OCR_CODE_RE.finditer(text.upper()):
+        code = _known_variant("B" + m.group(1)[1:] + m.group(2).translate(_OCR_DIGITS) + m.group(3))
+        if code:
+            return code
+    return strict[0] if strict else None
 
 MONTH_MAP = {
     "jan": "January", "feb": "February", "mar": "March", "apr": "April",

@@ -108,7 +108,9 @@ def _child(pdf_path: str, max_pages: int) -> dict:
         "pdf_type": pdf_type,
         "page_count": pages,
         "row_count": len(rows),
-        "content_meta": detector.parse_content_metadata(rows),
+        # Native PDFs keep their header outside the question table — read it too
+        "content_meta": detector.parse_content_metadata(
+            (detector.header_rows(pdf_path) if pdf_type == "native" else []) + rows),
         "sub_questions": sub_questions,
     }
 

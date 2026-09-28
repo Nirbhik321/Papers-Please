@@ -25,3 +25,20 @@ def test_ambiguous_subject_name_does_not_guess_a_branch():
 def test_explicit_code_beats_name():
     meta = parse_content_metadata([["BCSS02"], ["B.E. Examination, Dec.2024/Jan.2025"], ["Computer Networks"]])
     assert meta["subject_code"] == "BCS502" and meta["year"] == 2025
+
+
+def test_native_pdf_header_is_read_for_metadata():
+    import pytest
+    from pathlib import Path
+    from modules.detector import header_rows, parse_content_metadata
+    pdf = Path(__file__).resolve().parents[2] / "data" / "raw" / "MQP 2.pdf"
+    if not pdf.exists():
+        pytest.skip("sample paper not available")
+    meta = parse_content_metadata(header_rows(str(pdf)))
+    assert meta["subject_code"] == "BCS502" and meta["exam_type"] == "mqp"
+
+
+def test_stray_ocr_letter_maps_to_the_real_code():
+    assert find_subject_code("BCSS501 | USN") == "BCS501"
+    assert find_subject_code("BXYZ999") == "BXYZ999"      # unknown but well-formed: kept for review
+    assert find_subject_code("BAD502 and BCS502") == "BAD502"
