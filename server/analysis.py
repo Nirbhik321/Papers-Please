@@ -190,7 +190,8 @@ def _clean_label(label: str) -> str:
 def _exports(data: dict, ladders: dict) -> tuple[bytes, str]:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "sheet.pdf"
-        exporter.generate_cheat_sheet(data["name"], data["code"], ladders, data["paperCount"], str(out))
+        exporter.generate_cheat_sheet(data["name"], data["code"], ladders, data["paperCount"], str(out),
+                                      site_url=settings.site_url)
         pdf = out.read_bytes()
     csv_text = exporter.generate_csv(data["name"], data["code"], ladders, data["paperCount"])
     return pdf, csv_text

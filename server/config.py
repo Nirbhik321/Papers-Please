@@ -68,6 +68,7 @@ class Settings:
     ip_hash_salt: str = field(default_factory=lambda: os.environ.get("IP_HASH_SALT", "papers-please-local"))
 
     # Web frontend
+    site_url: str = field(default_factory=lambda: os.environ.get("SITE_URL", "").rstrip("/"))
     cors_origins: list[str] = field(default_factory=lambda: _list("CORS_ORIGINS") or ["http://localhost:3000"])
     revalidate_url: str = field(default_factory=lambda: os.environ.get("REVALIDATE_URL", ""))
     revalidate_secret: str = field(default_factory=lambda: os.environ.get("REVALIDATE_SECRET", ""))

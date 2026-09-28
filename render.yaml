@@ -29,5 +29,7 @@ services:
         sync: false
       - key: REVALIDATE_URL        # e.g. https://papers-please.vercel.app/api/revalidate
         sync: false
+      - key: SITE_URL              # e.g. https://papers-please.vercel.app (printed on cheat sheets)
+        sync: false
       - key: REVALIDATE_SECRET     # same value as the web app's REVALIDATE_SECRET
         sync: false
