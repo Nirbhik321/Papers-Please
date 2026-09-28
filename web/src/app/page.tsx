@@ -11,7 +11,7 @@ export default async function Home() {
   ]);
 
   const justAdded = (
-    <aside className="w-[440px] shrink-0 rounded-2xl border border-line bg-surface p-7">
+    <aside key="just-added" className="w-[440px] shrink-0 rounded-2xl border border-line bg-surface p-7">
       <div className="mb-2.5 flex items-baseline justify-between">
         <h2 className="font-display text-[22px] font-semibold">Just added</h2>
         <span className="text-[13px] text-ink-2">Live from uploads</span>
