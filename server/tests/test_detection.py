@@ -42,3 +42,14 @@ def test_stray_ocr_letter_maps_to_the_real_code():
     assert find_subject_code("BCSS501 | USN") == "BCS501"
     assert find_subject_code("BXYZ999") == "BXYZ999"      # unknown but well-formed: kept for review
     assert find_subject_code("BAD502 and BCS502") == "BAD502"
+
+
+def test_month_joined_to_year_in_filename():
+    from server import catalog
+    meta = parse_filename_metadata("BCS502_Dec2024.pdf")
+    assert (meta["month"], meta["year"]) == ("December", 2024)
+    # the Dec 2024 / Jan 2025 session, not January 2024
+    assert catalog.normalize_session(meta["month"], meta["year"]) == ("January", 2025)
+    assert parse_filename_metadata("BCS502-Nov2024.pdf")["month"] == "November"
+    assert parse_filename_metadata("JuneJuly_2025.pdf")["month"] is None       # run-together: leave to content
+    assert parse_filename_metadata("Marks Mayank BCS502 2024.pdf")["month"] is None

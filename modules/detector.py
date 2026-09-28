@@ -446,7 +446,10 @@ def parse_filename_metadata(filename: str) -> dict:
     # Month
     month = None
     for abbr, full in MONTH_MAP.items():
-        if re.search(r"\b" + abbr + r"\b", text, re.IGNORECASE):
+        # Letter lookarounds rather than \b, to match the year regex above:
+        # "Dec2024" → December (a \b needs a non-word char between "c" and "2"),
+        # while "Marks", "Mayank" and run-together "DecJan" still don't match.
+        if re.search(r"(?<![a-z])" + abbr + r"(?![a-z])", text, re.IGNORECASE):
             month = full
             break
 
