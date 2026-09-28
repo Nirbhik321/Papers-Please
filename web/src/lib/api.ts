@@ -33,23 +33,3 @@ export const getStats = () => get<Stats>("/api/stats", { papers: 0, subjects: 0,
 export const getRecent = () => get<RecentPaper[]>("/api/recent?limit=5", []);
 export const getSubject = (code: string) =>
   get<SubjectData | null>(`/api/subjects/${encodeURIComponent(code)}`, null);
-
-export function timeAgo(iso: string | null): string {
-  if (!iso) return "";
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < 90) return "just now";
-  const m = s / 60;
-  if (m < 60) return `${Math.round(m)} min ago`;
-  const h = m / 60;
-  if (h < 36) return `${Math.round(h)} h ago`;
-  const d = h / 24;
-  if (d < 14) return `${Math.round(d)} days ago`;
-  if (d < 60) return `${Math.round(d / 7)} weeks ago`;
-  return new Date(iso).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
-}
-
-export function yearRange(min: number | null, max: number | null): string {
-  if (!min && !max) return "";
-  if (min === max || !min) return String(max);
-  return `${min}–${max}`;
-}
