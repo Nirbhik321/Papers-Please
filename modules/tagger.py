@@ -99,11 +99,70 @@ _STOP_WORDS = {
 }
 
 
+# Instruction words that open exam questions ("Explain the …", "What is …")
+_LEADING = re.compile(
+    r"^(?:"
+    r"(?:what|which|how|why|when)\s+(?:is\s+meant\s+by|is|are|do|does|are\s+the|is\s+the)\s+"
+    r"|(?:briefly|clearly|neatly)\s+"
+    r"|(?:explain|define|describe|discuss|derive|prove|show|compare|contrast|differentiate|distinguish|"
+    r"list|write|draw|illustrate|state|evaluate|analy[sz]e|outline|find|solve|give|mention|enumerate|"
+    r"elaborate|sketch|construct|design|develop|obtain|calculate|compute|determine|identify|demonstrate|"
+    r"justify|apply|implement|summari[sz]e)(?:\s+|$)(?:and\s+(?:explain|describe|discuss)\s+|out\s+|down\s+)?"
+    r"|(?:a|an|the|about|in\s+brief|in\s+detail|short\s+notes?\s+on|notes?\s+on|(?:the\s+)?following|"
+    r"between|different|various|any\s+(?:two|three|four))(?:\s+|$)"
+    r")+",
+    re.IGNORECASE,
+)
+_WITH_DIAGRAM = re.compile(
+    r"^with\s+(?:a\s+|an\s+)?(?:neat\s+|suitable\s+|relevant\s+)?(?:block\s+)?(?:diagrams?|sketch|examples?|figure)\s*,?\s*",
+    re.IGNORECASE,
+)
+_LIST_MARKER = re.compile(r"(?<![A-Za-z])(?:[a-d]|i{1,3}|iv)\)\s*", re.IGNORECASE)
+_TRAILING = re.compile(r"\s+(?:in\s+detail|in\s+brief|briefly|neatly|in\s+short)$", re.IGNORECASE)
+_CLAUSE_SPLIT = re.compile(r"[?.;:]\s*|,\s*|\s+(?:with|using|for\s+the\s+given|by\s+taking)\s+", re.IGNORECASE)
+_SMALL = {"of", "and", "in", "for", "to", "on", "the", "a", "an", "vs", "or", "with", "by", "at"}
+
+
+def _titlecase(words: list[str]) -> str:
+    out = []
+    for i, w in enumerate(words):
+        if any(c.isdigit() for c in w) or "/" in w or (w.isupper() and len(w) > 1):
+            out.append(w)                       # TCP/IP, IPv4, CRC stay as written
+        elif i > 0 and w.lower() in _SMALL:
+            out.append(w.lower())
+        else:
+            out.append(w[:1].upper() + w[1:])
+    return " ".join(out)
+
+
+def _label_from_phrase(texts: list[str]) -> str | None:
+    """
+    Fallback: pull the subject of the question out of its shortest wording —
+    "What is data communication? List …" → "Data Communication".
+    """
+    candidates = sorted((t for t in texts if len(t.strip()) >= 12), key=len) or texts
+    for text in candidates[:3]:
+        text = _LIST_MARKER.sub(" ", _WITH_DIAGRAM.sub("", text.strip()))
+        for clause in _CLAUSE_SPLIT.split(text):
+            clause = _TRAILING.sub("", _LEADING.sub("", clause.strip())).strip(" -()'\"")
+            words = [w.strip("()'\"") for w in clause.split()]
+            words = [w for w in words if w]
+            if len(words) >= 1 and len(" ".join(words)) >= 3:
+                while words and words[-1].lower() in _SMALL:
+                    words.pop()
+                if words:
+                    return _titlecase(words[:6])
+    return None
+
+
 def _label_with_keywords(texts: list[str]) -> str:
     """
-    Fallback: extract most frequent meaningful words as a topic label.
-    No LLM needed.
+    Fallback: a phrase taken from the question itself, or failing that the
+    most frequent meaningful words. No LLM needed.
     """
+    phrase = _label_from_phrase(texts)
+    if phrase:
+        return phrase
     word_counts: Counter = Counter()
     for text in texts:
         words = re.findall(r"\b[a-zA-Z]{3,}\b", text)
