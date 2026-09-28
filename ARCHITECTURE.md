@@ -1,6 +1,6 @@
 # Papers Please — Architecture Reference
 
-A technical deep-dive into every layer of the system: module responsibilities, data contracts, design decisions, and extension points.
+A technical deep-dive into every layer of the system: how requests flow, what each module does, how uploads are kept safe, and why things are built the way they are.
 
 Built by **Nirbhik Chaki** and **Prabhat Anil Bajpai** — CMR Institute of Technology, Bengaluru.
 
@@ -10,20 +10,15 @@ Built by **Nirbhik Chaki** and **Prabhat Anil Bajpai** — CMR Institute of Tech
 
 - [Repository Layout](#repository-layout)
 - [High-Level Architecture](#high-level-architecture)
-- [Module Reference](#module-reference)
-  - [detector.py](#detectorpy)
-  - [parser.py](#parserpy)
-  - [db.py](#dbpy)
-  - [embedder.py](#embedderpy)
-  - [deduplicator.py](#deduplicatorpy)
-  - [scorer.py](#scorerpy)
-  - [tagger.py](#taggerpy)
-  - [exporter.py](#exporterpy)
-- [Pipeline Orchestrator](#pipeline-orchestrator)
-- [Streamlit UI Pages](#streamlit-ui-pages)
+- [The Life of an Upload](#the-life-of-an-upload)
+- [Upload Security](#upload-security)
+- [Publishing and Snapshots](#publishing-and-snapshots)
+- [Website](#website)
+- [API Reference](#api-reference)
 - [Database Schema](#database-schema)
+- [Analysis Modules](#analysis-modules)
+- [Hosting and Keep-Alive](#hosting-and-keep-alive)
 - [Configuration — subjects.yaml](#configuration--subjectsyaml)
-- [Data Flow End-to-End](#data-flow-end-to-end)
 - [Design Decisions](#design-decisions)
 - [Extension Points](#extension-points)
 
@@ -33,37 +28,46 @@ Built by **Nirbhik Chaki** and **Prabhat Anil Bajpai** — CMR Institute of Tech
 
 ```
 Papers-Please/
+├── web/                        # Next.js website (deployed on Vercel)
+│   └── src/
+│       ├── app/
+│       │   ├── page.tsx              # Home — search, filters, just-added feed
+│       │   ├── s/[code]/             # Subject page, studied tracking, topic graph
+│       │   ├── upload/               # Upload flow with live progress + confirm step
+│       │   ├── admin/                # Moderation (not linked, sign-in required)
+│       │   ├── how-it-works/         # Explains ranking and safety
+│       │   └── api/revalidate/       # On-demand refresh hook called by the API
+│       ├── components/               # Header, theme toggle, icons
+│       └── lib/                      # API client, types, formatting
 │
-├── app.py                  # Streamlit entry point — renders the home page
-├── pipeline.py             # 7-step orchestrator — the only caller of all modules
-├── subjects.yaml           # Config-driven subject map (145+ VTU 2022 codes)
-├── requirements.txt
+├── server/                     # FastAPI app + worker (deployed on Render)
+│   ├── main.py                 # HTTP routes
+│   ├── config.py               # Settings from environment variables
+│   ├── db.py                   # Schema (SQLAlchemy Core) — SQLite locally, Postgres in production
+│   ├── storage.py              # Private storage for original PDFs (disk or Supabase Storage)
+│   ├── security.py             # Upload checks, rate limiting, Turnstile, hashing
+│   ├── sandbox.py              # Reads untrusted PDFs in a locked-down child process
+│   ├── ingest.py               # Upload lifecycle, duplicate detection, moderation actions
+│   ├── analysis.py             # Rebuilds a subject and publishes its snapshot
+│   ├── worker.py               # Single background thread running heavy jobs
+│   ├── catalog.py              # Subject list + exam-session helpers
+│   ├── auth.py                 # Moderator authentication
+│   ├── cli.py                  # seed / rebuild / status
+│   └── tests/                  # API + safety tests
 │
-├── modules/
-│   ├── detector.py         # Step 1: PDF format detection + table extraction
-│   ├── parser.py           # Step 2: raw rows → structured sub_question dicts
-│   ├── db.py               # Step 3: SQLite helper — schema, inserts, queries
-│   ├── embedder.py         # Step 4a: Sentence-BERT singleton + encode()
-│   ├── deduplicator.py     # Step 4b: centroid-based 2-pass clustering
-│   ├── scorer.py           # Step 5: recency-decay scoring + marks ladder
-│   ├── tagger.py           # Step 6: Ollama topic labelling with keyword fallback
-│   └── exporter.py         # Step 7a: PDF cheat sheet + CSV question bank
+├── modules/                    # The analysis pipeline (pure Python, framework-free)
+│   ├── detector.py             # PDF type detection + table extraction (pdfplumber / OCR)
+│   ├── parser.py               # Raw rows → structured sub-questions
+│   ├── embedder.py             # Sentence-BERT on ONNX Runtime
+│   ├── deduplicator.py         # Two-pass centroid clustering
+│   ├── scorer.py               # Recency-decay scoring + marks ladder
+│   ├── tagger.py               # Topic labels (Ollama if present, phrase extraction otherwise)
+│   └── exporter.py             # A4 cheat sheet PDF + CSV question bank
 │
-├── pages/
-│   ├── 1_Upload.py         # Streamlit page — file uploader + pipeline trigger
-│   ├── 2_Dashboard.py      # Streamlit page — module tabs, ladder, exports
-│   └── 3_Graph.py          # Streamlit page — D3.js force-directed topic graph
-│
-├── docs/                   # Architecture diagrams (referenced by README)
-│   ├── architecture.png
-│   ├── pipeline.png
-│   ├── data_model.png
-│   └── tech_stack.png
-│
-└── data/                   # Runtime data — gitignored
-    ├── raw/                # Uploaded PDFs
-    ├── extracted/          # Per-paper JSON debug dumps
-    └── papers.db           # SQLite database
+├── supabase/migrations/        # Postgres schema with RLS + keep-alive cron jobs
+├── subjects.yaml               # 145+ VTU 2022-scheme subject codes
+├── Dockerfile · render.yaml    # API deployment
+└── data/                       # Local runtime data — gitignored
 ```
 
 ---
@@ -71,634 +75,279 @@ Papers-Please/
 ## High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   Streamlit UI                       │
-│   ┌──────────┐   ┌──────────────┐   ┌────────────┐  │
-│   │  Upload  │   │  Dashboard   │   │   Graph    │  │
-│   │  page    │   │  page        │   │   page     │  │
-│   └────┬─────┘   └──────┬───────┘   └─────┬──────┘  │
-└────────┼────────────────┼─────────────────┼──────────┘
-         │                │                 │
-         ▼                │                 │
-  pipeline.run()          │                 │
-         │                ▼                 ▼
-         │          db.get_*()         db.get_*()
-         │
-  ┌──────▼────────────────────────────────────────┐
-  │              pipeline.py (orchestrator)        │
-  │                                               │
-  │  1. detector  → (pdf_type, raw_rows)          │
-  │  2. parser    → sub_question dicts            │
-  │  3. db        → paper_id, sub_question rows   │
-  │  4. deduplicator → canonical clusters         │
-  │  5. scorer    → ranked ladder per module      │
-  │  6. tagger    → topic labels                  │
-  │  7. db        → persist canonical questions   │
-  └───────────────────────────────────────────────┘
-         │
-  ┌──────▼──────┐
-  │   SQLite    │  papers.db
-  │  (db.py)    │
-  └─────────────┘
+                 ┌───────────────────────────────┐
+  Students ────► │  Next.js site (Vercel)         │  pages pre-rendered, refreshed on demand
+                 │  Home · Subject · Upload · …   │  navigation and interaction in the browser
+                 └──────┬───────────────┬────────┘
+             reads      │               │ uploads, status polling, moderation
+       (build + ISR)    ▼               ▼
+                 ┌───────────────────────────────┐
+                 │  FastAPI (Render, 1 process)   │
+                 │  public reads: snapshots only  │
+                 │  uploads: quick checks → queue │
+                 │  ┌──────────────────────────┐  │
+                 │  │ worker thread, 1 job at  │──┼──► sandbox child process per PDF
+                 │  │ a time: read → match →   │  │    (no secrets, time/memory limits)
+                 │  │ publish                  │  │
+                 │  └──────────────────────────┘  │
+                 └──────┬───────────────┬────────┘
+                        ▼               ▼
+              Supabase Postgres   Supabase Storage (private "uploads" bucket)
+              (RLS on every table)
 ```
 
-The pipeline is the **single dependency hub** — no module calls another module directly. This keeps the call graph flat and each module independently testable.
+Two rules shape everything:
+
+1. **Reading never does work.** Every subject has a precomputed *snapshot* (the JSON the page renders, the cheat-sheet PDF and the CSV). A student opening a subject gets a pre-rendered page; the API only ever returns stored bytes.
+2. **Uploads are hostile until proven otherwise.** Files are checked before they're accepted, parsed only inside a sandbox, and can't change what students see until they pass duplicate and sanity checks — or a moderator approves them.
 
 ---
 
-## Module Reference
+## The Life of an Upload
 
-### detector.py
-
-**Responsibility:** Given a PDF path, decide how to read it and return structured table rows.
-
-**Public API:**
-```python
-def detect_and_extract(pdf_path: str) -> tuple[str, list[list[str]]]:
-    # Returns: (pdf_type, rows)
-    # pdf_type: "native" | "scanned"
-    # rows: list of cell lists, e.g. [["1", "a", "Explain CRC...", "5", "L2", "CO3"]]
+```
+POST /api/uploads ──► quick checks (size, %PDF- header, rate limit, Turnstile, block list)
+        │             exact-duplicate check by SHA-256  ──► 409 "already in the bank"
+        ▼
+ store original under its hash, create paper (status=processing)   ──► returns {id, token}
+        │
+ worker: process_paper ── sandbox: pages ≤ 6, not encrypted, sane page size,
+        │                  detector → parser → sub_questions
+        │── fewer than 5 questions or 3 modules ──► rejected ("not a question paper"), file deleted
+        ▼
+ status=awaiting_confirmation  (the uploader sees what was detected + 3 sample questions)
+        │
+ POST /api/uploads/{id}/confirm  (subject code, paper type, month, year — validated)
+        ▼
+ worker: match_paper
+        ├─ subject not in subjects.yaml ─────────────────┐
+        ├─ fewer than 8 questions / 4 modules ────────────┤
+        ├─ exam session already has a live paper ─────────┼──► status=review (moderator decides)
+        ├─ ≥ 90% of questions match a live paper ─────────┘
+        └─ otherwise ──► status=approved ──► rebuild subject ──► revalidate pages ──► Live
 ```
 
-**Decision logic:**
-```
-Try pdfplumber native extraction
-  → If total text chars < MIN_NATIVE_TEXT_PER_PAGE * n_pages:
-      Fall back to OCR path
-  → If no tables found:
-      Fall back to OCR path
+The uploader polls `GET /api/uploads/{id}` with their private token (returned only to them) and watches the steps: *Uploaded → Read safely → Confirm details → Matched → Live*.
 
-OCR path:
-  PyMuPDF renders page at 300 DPI → grayscale NumPy array
-  Tesseract PSM 6 → word bounding boxes (left, top, width, height, text, conf)
-  Words filtered by conf > 30
-  Words grouped into rows by vertical proximity (10px tolerance)
-  Row words assigned to columns by x-position / page_width ratio:
-    [0.00–0.13] → Q.No
-    [0.13–0.17] → Sub
-    [0.17–0.74] → Question text
-    [0.74–0.83] → Marks
-    [0.83–0.89] → Bloom level
-    [0.89–0.98] → Course outcome
-```
-
-**Subject map loading:**
-```python
-# At module load time:
-VTU_SUBJECT_MAP = _load_subject_map()
-# Tries subjects.yaml next to project root → falls back to hardcoded dict
-```
-
-**Key constants:**
-- `DPI = 300` — render resolution for OCR
-- `MIN_NATIVE_TEXT_PER_PAGE = 100` — chars threshold to detect scanned pages
+**Exam sessions.** VTU runs two semester-end sessions a year, labelled inconsistently ("Dec 2024", "Jan 2025", "Dec 2024–Jan 2025"). `catalog.normalize_session` folds Nov/Dec/Jan/Feb onto *January* and May–Aug onto *July*, and `session_key` = `BCS502:see:2025:jan`. A partial unique index allows **one live paper per session**, so the same exam can never be counted twice. Model papers have no session key (several sets per year are legitimate); near-duplicate detection still catches re-uploads of them.
 
 ---
 
-### parser.py
+## Upload Security
 
-**Responsibility:** Convert raw cell lists from `detector.py` into clean `sub_question` dicts the DB can store.
+| Threat | Defence |
+|---|---|
+| Parser exploits, decompression bombs, huge page images | PDFs are opened only in `sandbox.py`: a separate process per file with a scrubbed environment (no DB URL or keys), wall-clock timeout, and on Linux CPU / 1.5 GB address-space / file-size rlimits. PIL's pixel limit guards image bombs. Pages > 2000 pt, > 6 pages or encrypted files are refused. |
+| Oversized uploads / disk filling | `Content-Length` checked before reading; body read with a hard cap (10 MB); `%PDF-` header required. |
+| Path traversal via filenames | The uploader's filename is only ever displayed (sanitised). Files are stored under `papers/<hash[:2]>/<sha256>.pdf`; the local storage backend refuses keys that escape its folder. |
+| Serving malicious files to students | Originals are **never served**. Students only get extracted text and PDFs we generate. |
+| Duplicate / inflated counts | Exact duplicates by SHA-256; one live paper per exam session (unique index); ≥ 90% question overlap with a live paper → review. |
+| Fake or junk papers | Structural checks (questions, modules found) reject non-papers and hold partial scans for review; unknown subject codes go to review. |
+| Spam and abuse | Cloudflare Turnstile per upload, 10 uploads/hour per uploader, moderators can block an uploader. Uploaders are identified by an HMAC of their IP (the IP itself is never stored). |
+| Stored XSS via question text | React escapes all text; no `dangerouslySetInnerHTML` with data. Topic labels are length-limited plain text. |
+| Unauthorised moderation | Every `/api/admin/*` route requires a moderator: a Supabase Auth session whose email is in `ADMIN_EMAILS`, or the `ADMIN_TOKEN` secret. |
+| Reading the database through Supabase's public API | Row-level security is enabled on every table with no policies; only the API server (table owner) can read or write. |
+| Someone else confirming your upload | Status and confirm endpoints require the upload's random token; only its SHA-256 is stored. |
 
-**Public API:**
-```python
-def parse_rows(rows: list[list[str]], filename: str) -> tuple[dict, list[dict]]:
-    # Returns: (metadata, sub_questions)
-    # metadata: {subject_code, subject_name, year, month, exam_type, ...}
-    # sub_questions: [{module, q_no, sub_q, text, marks, bloom, co}, ...]
-```
+Limits worth knowing: the sandbox is a process boundary, not a container, and rate limiting is in memory (fine for one server process).
 
-**Row classification logic (in order):**
-1. **Module header** — matches "Module – 3" or garbled variants via 3-tier fuzzy regex. Updates `current_module`.
-2. **OR separator** — single cell containing "OR" or "or". Skipped.
-3. **Question row** — has a valid Q.No pattern and non-empty text cell. Parsed into a sub_question dict.
-4. **Continuation** — text-only row with no Q.No. Appended to the previous question's text.
-5. **Ignored** — marks-only rows, page headers, blank rows.
+---
 
-**OCR Q.No normalisation:**
-```
-Pattern examples recognised:
-  "1" / "Q1" / "Q.1" / "01" → module question 1
-  "O22" (doubled digit) → 2
-  "Qa" / "0.7" / "oO6" → parsed with fallback patterns
-```
+## Publishing and Snapshots
 
-**Filename metadata extraction:**
-```
-Patterns: "JAN 2025 BCS502", "DEC2024_BCS501", "BCS515D MQP 1"
-  → subject_code, year, month, exam_type (regular/model/MQP)
+`analysis.rebuild_subject(code)` runs on the worker thread whenever a subject's set of live papers changes (auto-approval, approve, replace, reject/take-down, delete, or `cli rebuild`):
+
+1. Load all approved papers for the subject and their sub-questions.
+2. For each module: `deduplicator.deduplicate` → `scorer.score_canonicals` (single-paper subjects are ranked by marks instead).
+3. **Stable topic keys.** Each new group takes the key (and label) of the previous build's topic that shared the most sub-questions, so a student's "studied" ticks — stored in their browser by topic key — survive new papers arriving. `--relabel` regenerates labels.
+4. Label new topics with `tagger`.
+5. Write `topics` / `topic_appearances`, then one `subject_snapshots` row: the page JSON, the cheat-sheet PDF and the CSV.
+6. POST `REVALIDATE_URL` so Vercel refreshes `/` and `/s/<code>` on their next visit.
+
+Snapshot JSON (abridged):
+
+```json
+{
+  "code": "BCS502", "name": "Computer Networks", "paperCount": 4, "moduleMarks": 20,
+  "sessions": [{"id": 9, "label": "Jan 2025", "short": "Jan 25", "type": "see", "source": "scanned"}],
+  "modules": [{
+    "no": 1, "fullAt": 3,
+    "ladder": [{"rank": 1, "label": "Data Communications", "cumulative": 8.0, "full": false}],
+    "topics": [{
+      "key": "3f9a1c2b7d0e", "rank": 1, "label": "Data Communications",
+      "text": "What is data communication? …", "frequency": 3, "frequencyPct": 0.75,
+      "avgMarks": 8.0, "expectedMarks": 6.0, "sessions": [9, 2, 3],
+      "wordings": [{"session": 9, "where": "Q1a", "marks": 10, "text": "Define data communications …"}]
+    }]
+  }]
+}
 ```
 
 ---
 
-### db.py
+## Website
 
-**Responsibility:** All SQLite operations — schema creation, inserts, queries. No business logic.
+Next.js (App Router) with Tailwind, desktop-first.
 
-**Schema:**
-```sql
-papers (
-    id          INTEGER PRIMARY KEY,
-    filename    TEXT UNIQUE,
-    subject_code TEXT,
-    subject_name TEXT,
-    year        INTEGER,
-    month       TEXT,
-    exam_type   TEXT,
-    pdf_type    TEXT,
-    created_at  TIMESTAMP
-)
+| Route | Rendering | Notes |
+|---|---|---|
+| `/` | Static, ISR (5 min + on demand) | Search filters in the browser as you type; `/` focuses search; matches in the subject list with no papers link to upload. |
+| `/s/[code]` | Static per subject (`generateStaticParams`), ISR | Module tabs, topic cards, "Mark studied" (localStorage), coverage meter, marks ladder, papers list. The graph view (d3-force) is a separate chunk loaded only when opened. |
+| `/upload` | Static shell, client-side flow | Drag-and-drop, Turnstile, polling, confirm form. The visit's uploads survive a refresh (sessionStorage). |
+| `/admin` | Client only, `noindex` | Sign in with Supabase Auth (or the admin token locally); queues by status; side-by-side duplicate comparison; approve / replace / reject / reprocess / delete / block. |
+| `/api/revalidate` | Route handler | Bearer-secret protected; calls `revalidatePath` for the paths the API sends. |
 
-sub_questions (
-    id          INTEGER PRIMARY KEY,
-    paper_id    INTEGER REFERENCES papers(id),
-    module      INTEGER,
-    q_no        TEXT,
-    sub_q       TEXT,
-    text        TEXT,
-    marks       INTEGER,
-    bloom_level TEXT,
-    course_outcome TEXT
-)
+If the API is unreachable at build time the build still succeeds with empty data and ISR fills pages in; at runtime a failed refresh keeps serving the last good page.
 
-canonical_questions (
-    id              INTEGER PRIMARY KEY,
-    subject_code    TEXT,
-    module          INTEGER,
-    representative_text TEXT,
-    topic_label     TEXT,
-    avg_marks       REAL,
-    frequency       INTEGER,
-    frequency_pct   REAL,
-    weighted_score  REAL,
-    full_coverage   INTEGER,
-    expected_marks  REAL,
-    rank            INTEGER
-)
-
-appearances (
-    id                  INTEGER PRIMARY KEY,
-    canonical_question_id INTEGER REFERENCES canonical_questions(id),
-    sub_question_id     INTEGER REFERENCES sub_questions(id),
-    paper_id            INTEGER,
-    year                INTEGER,
-    q_no                TEXT,
-    sub_q               TEXT,
-    marks               INTEGER
-)
-```
-
-**Key functions:**
-```python
-get_conn(db_path)                    # Returns connection with WAL + foreign keys
-insert_paper(db_path, meta) → int   # Returns paper_id or None if duplicate
-insert_sub_questions(...)
-delete_sub_questions_for_paper(...)  # Used by force=True re-processing
-get_sub_questions_for_module(...)    # Main query for deduplication
-insert_canonical_questions(...)
-get_canonical_questions(...)         # Used by Dashboard + exporter
-get_all_subjects(db_path)           # Returns [{subject_code, subject_name, count}, ...]
-```
-
-**Idempotency contract:** `papers.filename` has a UNIQUE constraint. `insert_paper` returns `None` on duplicate, triggering a skip in the pipeline. When `force=True`, existing sub-questions are deleted first, then re-inserted fresh.
+Dark mode follows the system setting, can be toggled, and is applied by an inline script before first paint (no flash).
 
 ---
 
-### embedder.py
+## API Reference
 
-**Responsibility:** Singleton wrapper around `SentenceTransformer`. Ensures the model is loaded once and reused.
+| Method & path | Who | Purpose |
+|---|---|---|
+| `GET /healthz` | anyone | Keep-alive target; touches nothing |
+| `GET /api/stats`, `/api/subjects`, `/api/catalog`, `/api/recent` | anyone | Lists for the home page |
+| `GET /api/subjects/{code}` | anyone | Snapshot JSON |
+| `GET /api/subjects/{code}/cheatsheet.pdf`, `/questions.csv` | anyone | Downloads |
+| `POST /api/uploads` | anyone (rate-limited, Turnstile) | Returns `{id, token}`; `409` for exact duplicates |
+| `GET /api/uploads/{id}` | uploader (`X-Upload-Token`) | Status, detected metadata, preview |
+| `POST /api/uploads/{id}/confirm` | uploader | Subject + session confirmation |
+| `GET /api/admin/me`, `/api/admin/papers[?status=]`, `/api/admin/papers/{id}` | moderator | Queues, detail with duplicate comparison |
+| `POST /api/admin/papers/{id}/approve · reject · replace · reprocess` | moderator | Decisions |
+| `PATCH /api/admin/papers/{id}` · `DELETE /api/admin/papers/{id}` | moderator | Fix metadata · remove |
+| `POST /api/admin/uploaders/{hash}/block` · `/api/admin/subjects/{code}/rebuild` | moderator | Abuse · maintenance |
 
-**Public API:**
-```python
-def encode(texts: list[str]) -> np.ndarray:
-    # Returns L2-normalised embeddings, shape (N, 384)
-```
-
-**Model:** `paraphrase-MiniLM-L6-v2`
-
-Why this model over `all-MiniLM-L6-v2`:
-- Trained specifically on **paraphrase pairs** from MSMARCO, QQP, and other datasets
-- "Explain CRC" ↔ "Describe CRC encoder operation with diagram" → similarity ~0.82 (vs ~0.72 with the general model)
-- Still CPU-friendly (~90 MB download, ~50ms for 50 questions on a laptop)
-
-All embeddings are **L2-normalised at encode time**, so `cos_sim(a, b) = dot(a, b)` — no division needed during clustering.
-
----
-
-### deduplicator.py
-
-**Responsibility:** Group sub-questions from the same (subject, module) across all papers into canonical clusters.
-
-**Public API:**
-```python
-def deduplicate(
-    sub_questions: list[dict],
-    threshold: float = 0.70,
-) -> list[dict]:
-    # Returns canonical question dicts:
-    # [{representative_text, avg_marks, appearances: [...]}]
-```
-
-**Algorithm — Two-Pass Centroid Clustering:**
-
-```
-PRE-PROCESSING:
-  1. Filter texts shorter than MIN_TEXT_LENGTH (12 chars) — discards OCR garbage
-  2. Run _clean_for_embed() on each text:
-       - Strip leading sub-question labels ("a.", "Q.3", pipes, underscores)
-       - Strip trailing punctuation noise
-       - Fix OCR run-together prefixes ("AExplain" → "Explain")
-  3. Encode all cleaned texts → L2-normalised embeddings matrix E (N × 384)
-
-PASS 1 — GREEDY SEEDING:
-  clusters = []
-  centroids = []
-  for i in range(N):
-      vec = E[i]
-      best_sim, best_c = max over all centroids of dot(vec, centroid)
-      if best_sim >= threshold:
-          clusters[best_c].append(i)
-          centroid = incremental_mean(old_centroid, vec, n_members)
-          centroid = centroid / norm(centroid)   # keep unit length
-      else:
-          clusters.append([i])
-          centroids.append(vec.copy())
-
-PASS 2 — REFINEMENT:
-  centroids = [mean(E[idxs]) / norm for idxs in clusters]   # recompute from scratch
-  C = stack(centroids)   # (K × 384) matrix
-  sims = E @ C.T         # (N × K) — all similarities in one matmul
-  new_clusters = [[] for k in K] + []   # extra slots for new singletons
-  for i in range(N):
-      best_c = argmax(sims[i])
-      if sims[i, best_c] >= threshold:
-          new_clusters[best_c].append(i)
-      else:
-          new_clusters.append([i])   # forced singleton
-  clusters = [c for c in new_clusters if c]   # drop empties
-
-POST-PROCESSING:
-  For each cluster:
-      representative_text = most recent + longest question text
-      avg_marks = mean(marks) across appearances
-      appearances = [{sub_question_id, paper_id, year, q_no, sub_q, marks}]
-```
-
-**Why two passes:** The greedy pass is order-dependent — an early question can "claim" a centroid position that later questions would have been better placed in. The refinement pass corrects this by reassigning everything against fresh, unbiased centroids.
-
-**Threshold = 0.70** was empirically tuned on ~200 real VTU questions:
-- At 0.80+: "explain X" and "describe X with diagram" remain separate clusters (~15% false negatives)
-- At 0.70: same pair merges correctly; "X" and "Y" from the same module remain separate
-- At 0.60-: unrelated topics within the same module start merging (~5% false positives)
-
----
-
-### scorer.py
-
-**Responsibility:** Given a list of canonical question dicts, return a sorted, scored ladder per module.
-
-**Public API:**
-```python
-def build_module_ladders(
-    canonical_questions: list[dict],
-    total_papers: int,
-    current_year: int,
-) -> dict[int, list[dict]]:
-    # Returns {module_no: [step_dicts sorted by weighted_score desc]}
-```
-
-**Scoring formula:**
-```python
-DECAY = 0.85
-
-weighted_score = sum(
-    DECAY ** (current_year - appearance["year"])
-    for appearance in canonical_question["appearances"]
-    if appearance["year"]
-)
-
-frequency_pct = len(appearances) / total_papers
-expected_marks = frequency_pct * avg_marks
-```
-
-**Ladder construction:**
-```python
-# Sort by weighted_score descending within each module
-# Accumulate expected_marks top-down
-# Mark full_coverage=True when cumulative_expected >= MAX_MODULE_MARKS (20)
-```
-
-**format_years / format_appearances** helpers format display strings like "Jan 2025, Dec 2024" and "Q3a (5M, 2024)" for the dashboard and CSV.
-
----
-
-### tagger.py
-
-**Responsibility:** Assign a short human-readable topic label (3-5 words) to each canonical question.
-
-**Public API:**
-```python
-def label_questions(questions: list[dict]) -> list[dict]:
-    # Adds "topic_label" key to each question dict in-place
-```
-
-**Three-tier fallback:**
-
-```
-Tier 1 — Ollama preferred model (phi3:mini or llama3.2:1b):
-  Prompt: "Give a 3-5 word topic label for this VTU exam question: <text>"
-  If Ollama not running → TimeoutError → fall through
-
-Tier 2 — Any available Ollama model:
-  List models with ollama.list(), try the first available
-  If no models → fall through
-
-Tier 3 — Keyword frequency fallback (no LLM):
-  Tokenise question text → strip stopwords + OCR noise words
-  Return top 3 content words joined by spaces
-  Example: "Explain CRC encoder operation" → "CRC encoder operation"
-```
-
-The fallback means the pipeline **never fails** due to Ollama being absent. Label quality degrades gracefully.
-
----
-
-### exporter.py
-
-**Responsibility:** Generate exportable outputs from the scored ladder.
-
-**Public API:**
-```python
-def generate_cheat_sheet(
-    subject_name, subject_code,
-    module_ladders, total_papers,
-) -> bytes:   # PDF bytes
-
-def generate_csv(
-    subject_name, subject_code,
-    module_ladders, total_papers,
-) -> str:   # CSV string
-```
-
-**PDF layout (fpdf2):**
-- Header with subject name, code, total papers analysed, generation date
-- One section per module, sorted by priority rank
-- Each row: rank, topic label, question text (truncated at 120 chars), avg marks, frequency, years seen
-- Full coverage marker `[✓ Full Coverage]` at the cutoff point
-
-**CSV columns:**
-```
-Module, Priority Rank, Topic Label, Question Text, Avg Marks,
-Times Repeated, Total Papers, Frequency %, Years Seen,
-Expected Marks, Full Coverage
-```
-
-Sorted by Module then Priority Rank — designed to be importable directly into Google Sheets or Excel for further filtering.
-
----
-
-## Pipeline Orchestrator
-
-`pipeline.py` is the **only file that imports from multiple modules**. All modules are isolated from each other.
-
-```python
-def run(
-    pdf_paths: list[str],
-    db_path: str,
-    progress_cb: Callable = None,
-    force: bool = False,
-) -> dict:
-```
-
-**Step sequence for each PDF:**
-
-```
-Step 1 — detector.detect_and_extract(pdf_path)
-         → pdf_type: "native" | "scanned"
-         → raw_rows: list[list[str]]
-
-Step 2 — parser.parse_rows(raw_rows, filename)
-         → meta: {subject_code, year, month, ...}
-         → sub_qs: [{module, q_no, sub_q, text, marks, ...}]
-
-Step 3 — db.insert_paper(meta) → paper_id
-         if paper_id is None: skip (already in DB)
-         if force: db.delete_sub_questions_for_paper(paper_id)
-         db.insert_sub_questions(paper_id, sub_qs)
-
-Step 4 — For each (subject_code, module) pair in the DB:
-         raw = db.get_sub_questions_for_module(subject_code, module)
-         clusters = deduplicator.deduplicate(raw)
-
-Step 5 — ladder = scorer.build_module_ladders(clusters, total_papers)
-
-Step 6 — tagger.label_questions(all_clusters)
-
-Step 7 — db.delete_canonical_questions(subject_code)
-         db.insert_canonical_questions(subject_code, ladders)
-```
-
-**force=True** re-processes an already-uploaded paper: deletes its sub-questions and re-inserts from scratch. All canonical questions for that subject are also rebuilt.
-
-**progress_cb** receives a string message at each step — used by the Streamlit Upload page to update the progress bar in real time.
-
----
-
-## Streamlit UI Pages
-
-### app.py (Home)
-Renders the landing page with project description, quick-start instructions, and navigation hints. No pipeline calls.
-
-### pages/1_Upload.py
-- `st.file_uploader` with `accept_multiple_files=True`, `type=["pdf"]`
-- Saves uploaded files to `data/raw/`
-- Calls `pipeline.run()` with a `st.progress` callback
-- Shows per-file status (skipped / processed / error)
-- "Force re-process" toggle for re-uploading papers
-
-### pages/2_Dashboard.py
-- Queries `db.get_all_subjects()` → renders a selectbox
-- Queries `db.get_canonical_questions(subject_code)` → builds `module_ladders` dict
-- Renders `st.tabs` (one per module)
-- Each tab: `st.dataframe` with the ladder + `st.metric` for coverage
-- Export section: two `st.download_button` — one for PDF, one for CSV
-
-### pages/3_Graph.py
-- Queries canonical questions for the selected subject
-- Builds a node/edge graph where questions sharing a module are connected
-- Renders an interactive D3.js force-directed graph via `st.components.v1.html`
-- Node size = frequency, node colour = module, edges = co-appearance in same module
+Interactive docs: `/api/docs`.
 
 ---
 
 ## Database Schema
 
 ```
-papers
-  id ──────────────────────┐
-  filename (UNIQUE)        │
-  subject_code             │
-  subject_name             │
-  year                     │
-  month                    │
-  exam_type                │
-  pdf_type                 │
-  created_at               │
-                           │
-sub_questions              │
-  id ──────────────────────┼──────────────────┐
-  paper_id ────────────────┘                  │
-  module                                      │
-  q_no, sub_q                                 │
-  text                                        │
-  marks, bloom_level, course_outcome          │
-                                              │
-canonical_questions                           │
-  id ──────────────────────────────┐          │
-  subject_code                     │          │
-  module                           │          │
-  representative_text              │          │
-  topic_label                      │          │
-  avg_marks                        │          │
-  frequency, frequency_pct         │          │
-  weighted_score                   │          │
-  full_coverage, expected_marks    │          │
-  rank                             │          │
-                                   │          │
-appearances                        │          │
-  canonical_question_id ───────────┘          │
-  sub_question_id ────────────────────────────┘
-  paper_id
-  year, q_no, sub_q, marks
+papers                      one row per upload
+  id, status, stage, status_reason
+  subject_code, subject_name, exam_year, exam_month, paper_type, session_key
+  filename (display only), content_hash (UNIQUE), storage_key
+  pdf_type, page_count, question_count, modules_found, detected (JSON)
+  upload_token_hash, uploader_hash, reviewed_by, reviewed_at, created_at, updated_at
+  UNIQUE (session_key) WHERE status = 'approved'
+
+sub_questions               questions extracted from a paper (cascade-deleted with it)
+  id, paper_id → papers, module_no, q_no, sub_q, is_or_alt, text, marks, bloom_level, course_outcome
+
+topics                      groups of the same question across papers, per subject + module
+  id, subject_code, module_no, stable_key, label, representative_text,
+  avg_marks, frequency, weighted_score, last_seen_year
+
+topic_appearances           topic ↔ sub_question
+subject_snapshots           published data: data (JSON), cheatsheet_pdf, questions_csv, counts, updated_at
+blocked_uploaders           uploader_hash, reason, blocked_by
 ```
 
-**Rebuild strategy:** Canonical questions and appearances are **fully deleted and rebuilt** whenever new papers are added to a subject. This ensures the frequency, weighted_score, and rankings are always computed over the complete dataset.
+Statuses: `processing → awaiting_confirmation → processing(matching) → approved | review`, plus `rejected` and `failed`. Topics and snapshots are rebuilt from scratch for a subject whenever its live papers change.
+
+`server/db.py` defines the schema once for both SQLite (local) and Postgres; `supabase/migrations/20260928000000_schema.sql` mirrors it for Supabase and adds RLS and the private storage bucket.
+
+---
+
+## Analysis Modules
+
+### detector.py
+Given a PDF path, decides how to read it and returns table rows (`list[list[str]]`).
+- **Native PDFs:** `pdfplumber` table extraction.
+- **Scanned PDFs** (under 100 chars of text, or no tables): PyMuPDF renders each page at 300 DPI; Tesseract (PSM 6) returns word boxes; words are grouped into rows by vertical position and bucketed into fixed VTU columns — Q.No 0–13%, Sub 13–17%, Text 17–74%, Marks 74–83%, Bloom 83–89%, CO 89–100% of page width.
+- **Metadata:** `parse_filename_metadata` and `parse_content_metadata` find the subject code (`SUBJECT_CODE_RE` — every 2022-scheme code such as BCS502, BIS601, BAI515B, BMATM101), month and year.
+
+### parser.py
+Turns rows into sub-questions: module headers (strict + fuzzy regex for garbled OCR), OR rows skipped, continuation lines joined, garbled question numbers ("O22" → 2), marks/Bloom/CO scanned from all right-hand cells, whitespace folded.
+
+### embedder.py
+`paraphrase-MiniLM-L6-v2` run with **ONNX Runtime** + the `tokenizers` library: tokenise (max 128 tokens) → model → mean pooling over the attention mask → L2 normalise, so cosine similarity is a dot product. Output matches the sentence-transformers/PyTorch version to within 1e-7, with a ~100 MB install instead of ~2 GB. The model files are baked into the Docker image.
+
+### deduplicator.py
+Two-pass centroid clustering at cosine ≥ 0.70 over one subject+module across all papers:
+1. **Greedy pass:** each question joins the most similar cluster centroid (incremental mean, re-normalised) or starts a new cluster.
+2. **Refinement pass:** centroids recomputed from scratch; every question reassigned to its nearest centroid in one matrix multiply (below threshold → singleton). This removes the greedy pass's order-dependence.
+
+The representative wording is the most recent, longest one. OCR noise (leading labels, pipes, run-together prefixes) is stripped before embedding.
+
+### scorer.py
+`weighted_score = Σ 0.85^(this_year − paper_year)` over the distinct papers a topic appeared in; `expected_marks = (papers it appeared in / total papers) × average marks`. The marks ladder accumulates expected marks down the ranking until the module's 20 marks are covered.
+
+### tagger.py
+Short topic labels. Uses a local Ollama model if one is running; otherwise (always, on the free server) pulls the subject of the question out of its best wording: prefers well-formed questions over OCR fragments, strips instruction words ("Explain the…", "What is…", "with a neat diagram"), list markers and filler, and keeps up to six words in title case (acronyms like TCP/IP untouched).
+
+### exporter.py
+- **Cheat sheet:** a one-page A4 PDF (fpdf2) — for each module, the top three topics with a frequency square (red = most papers, amber = half or more, outline = occasional), the question, papers seen, usual marks, and the ladder result ("Top 3 → full 20M").
+- **CSV question bank:** Module, Priority Rank, Topic Label, Question Text, Avg Marks, Times Repeated, Total Papers, Frequency %, Years Seen, Expected Marks, Full Coverage.
+
+---
+
+## Hosting and Keep-Alive
+
+| Piece | Where | Free-tier notes |
+|---|---|---|
+| Website | Vercel | Static pages + ISR |
+| API + worker | Render (Docker, free) | 512 MB RAM → ONNX, one worker thread, one PDF at a time; 750 h/month covers one always-on service |
+| Database, file storage, moderator login | Supabase | Postgres via the **session pooler** (Render can't reach the IPv6-only direct host) |
+
+Render puts free services to sleep after 15 minutes without traffic. `supabase/migrations/20260928000100_keepalive_cron.sql` schedules, with `pg_cron` + `pg_net`:
+
+- `keep-render-awake` — `*/6 * * * *`: GET `https://<service>.onrender.com/healthz` (cron works in whole minutes, so 6 minutes stands in for 6½).
+- `clear-cron-history` — `0 3 */3 * *`: deletes `cron.job_run_details` rows older than a day, so the history table stays small. `pg_net` removes its own stored responses after 6 hours.
 
 ---
 
 ## Configuration — subjects.yaml
 
 ```yaml
-# Format: "SUBJECT_CODE": "Subject Name"
-# The app loads this at startup via modules/detector._load_subject_map()
-# Falls back to the hardcoded dict if the file is missing or unparseable.
-
-BCS301: Mathematics for Computer Science (CSE/ISE)
-BCS302: Digital Design and Computer Organization
-# ... 145+ entries organised by semester and branch
+# Format: SUBJECT_CODE: Subject Name — read at startup by modules/detector._load_subject_map()
+BCS502: Computer Networks
+BIS601: Full Stack Development
 ```
 
-**Loading sequence:**
-```python
-yaml_path = Path(__file__).parent.parent / "subjects.yaml"
-raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
-loaded = {str(k).upper(): str(v) for k, v in raw.items()
-          if not str(k).startswith("#")}
-```
-
-**Comment lines** (lines starting with `#`) are filtered at the YAML level — `yaml.safe_load` treats them as YAML comments and they never appear in the parsed dict.
-
----
-
-## Data Flow End-to-End
-
-```
-User uploads  ──► data/raw/BCS502_JAN2025.pdf
-                       │
-                       ▼
-             detector.detect_and_extract()
-                  ├─ pdfplumber (native)
-                  └─ PyMuPDF + Tesseract (scanned)
-                       │
-                       ▼ raw_rows: [["1","a","Explain CRC...","5","L2","CO3"], ...]
-                       │
-             parser.parse_rows()
-                       │
-                       ▼ sub_qs: [{module:2, q_no:"1", sub_q:"a",
-                       │           text:"Explain CRC encoder...", marks:5}, ...]
-                       │
-             db.insert_paper() + db.insert_sub_questions()
-                       │
-                       ▼ paper stored, sub_questions rows created
-                       │
-             db.get_sub_questions_for_module("BCS502", 2)
-                  [Aggregates across ALL papers for this subject+module]
-                       │
-                       ▼ [{id, text, marks, year, paper_id, q_no, sub_q}, ...]
-                       │
-             deduplicator.deduplicate()
-                  embedder.encode() → L2-norm embeddings
-                  Pass 1: greedy centroid clustering
-                  Pass 2: refinement via centroid matrix multiply
-                       │
-                       ▼ canonical clusters: [{representative_text, appearances:[...]}, ...]
-                       │
-             scorer.build_module_ladders()
-                       │
-                       ▼ {2: [{rank:1, weighted_score:3.2, expected_marks:4.1, ...}, ...]}
-                       │
-             tagger.label_questions()
-                  → Ollama / keyword fallback
-                       │
-                       ▼ topic_label added to each cluster
-                       │
-             db.insert_canonical_questions()
-                       │
-                       ▼ stored in canonical_questions + appearances tables
-                       │
-             Dashboard reads db.get_canonical_questions("BCS502")
-             exporter generates PDF / CSV
-                       │
-                       ▼
-             User downloads cheat sheet or question bank
-```
+Adding a subject needs no code changes. A code missing from the file can still be uploaded, but it goes to moderator review.
 
 ---
 
 ## Design Decisions
 
-### Why SQLite and not PostgreSQL?
-Single-user, local-first app. No concurrent writes. No network. SQLite with WAL mode handles all requirements with zero setup. The entire database is a single file — easy to back up, share, or delete.
+### Why precomputed snapshots?
+Reads outnumber uploads by orders of magnitude. Computing a subject's ranking takes seconds of CPU and an embedding model; serving a stored JSON takes microseconds. Doing the work once per change, on the worker, means page speed doesn't depend on the free server's CPU.
 
-### Why Streamlit and not Flask + React?
-The goal was a functional tool, not a product. Streamlit delivers a working dashboard in ~200 lines of Python with no JavaScript, no templates, no HTTP routing. The tradeoff (limited interactivity, no real-time push) is acceptable for an offline analysis tool.
+### Why Next.js with pre-rendering instead of a pure client-side app?
+Pure client-side rendering shows a spinner while JavaScript downloads and then fetches data, and search engines see an empty page — and "BCS502 important questions" is exactly what students search for. Pre-rendered pages paint immediately and are indexable; after the first load, tabs, filters, studied ticks and navigation all happen in the browser.
+
+### Why keep the pipeline in Python behind FastAPI?
+The extraction and NLP pipeline was already written and tuned in Python; FastAPI exposes it with typed request models and minimal overhead. Streamlit re-ran the whole page on the server for every click, which is what made the old UI feel slow.
+
+### Why ONNX Runtime instead of PyTorch?
+Same model, same numbers, a fraction of the memory — the difference between fitting in Render's free 512 MB and not.
+
+### Why one worker thread?
+Memory. One PDF read and one subject rebuild at a time keeps peak usage flat. Jobs are recoverable: on startup every paper still marked `processing` is re-queued.
 
 ### Why hardcoded column proportions for OCR?
-VTU CBCS question papers have a remarkably consistent layout (all A4, same column structure since 2017). Auto-detecting columns from word gap analysis failed on pages with headers, footers, and partial rows. Fixed proportional splits calibrated from 20+ real papers are more reliable than a general-purpose solution for this specific domain.
+VTU CBCS papers have a consistent layout. Auto-detecting columns from word gaps failed on pages with headers and footers; fixed proportional splits calibrated on real papers are more reliable for this domain.
 
 ### Why paraphrase-MiniLM over all-MiniLM?
-`all-MiniLM-L6-v2` is trained on diverse web text for semantic similarity. `paraphrase-MiniLM-L6-v2` is trained on **parallel paraphrase corpora** (MSMARCO, QQP, PAWS). Academic exam questions are essentially paraphrases of the same concept — the paraphrase-tuned model has a structural advantage for this task.
+Exam questions are paraphrases of the same concept; the paraphrase-trained model scores "Explain CRC" vs "Describe the CRC encoder with a diagram" much higher.
 
 ### Why greedy clustering over k-means or DBSCAN?
-- k-means requires knowing K upfront — the number of unique topics in a module is unknown
-- DBSCAN requires two hyperparameters (eps, min_samples) that don't generalise across modules with 5 vs 50 questions
-- Greedy centroid clustering is single-pass, O(N × K), and requires only one threshold parameter
+The number of topics per module is unknown (rules out k-means) and module sizes vary too much for fixed DBSCAN parameters. Greedy centroid clustering needs one threshold; the refinement pass fixes its order-dependence.
 
-The 2-pass refinement added later corrects the main weakness (order-dependence) without changing the algorithm's core simplicity.
-
-### Why recency-decay scoring?
-Exams are not uniformly distributed in time. VTU course content evolves — topics added to recent syllabi appear more in recent papers. A question asked 3 times in the last 3 years is a stronger signal than one asked 3 times between 2015 and 2019. The exponential decay model (DECAY=0.85, same as used in ELO rating systems and email inbox aging) captures this naturally.
+### Why recency decay?
+Syllabi drift. A topic asked in each of the last three sessions is a stronger signal than one asked three times years ago.
 
 ---
 
 ## Extension Points
 
-### Adding new subject codes
-Edit `subjects.yaml`. No code changes needed. The app reads the file at startup.
-
-### Adding a new VTU semester or branch
-Add entries to `subjects.yaml` under a new comment block. The subject code prefix determines the branch — the app has no hardcoded branch logic beyond the map.
-
-### Supporting non-VTU papers
-1. Implement a new extraction strategy in `detector.py` returning the same `list[list[str]]` format
-2. Implement new filename metadata patterns in `parser._parse_filename()`
-3. Add subject codes to `subjects.yaml`
-No other files need changing.
-
-### Adding a new export format
-Add a new function to `exporter.py` with the same signature pattern as `generate_csv` / `generate_cheat_sheet`, then add a `st.download_button` in `pages/2_Dashboard.py`.
-
-### Swapping the embedding model
-Change the model name string in `embedder.py`. The rest of the pipeline is model-agnostic — it only sees normalised float arrays.
-
-### Replacing Ollama with a different LLM
-Modify `tagger.py`'s Tier 1 / Tier 2 blocks. The Tier 3 keyword fallback is unaffected.
+- **New subjects / branches:** add lines to `subjects.yaml`.
+- **Better topic labels:** implement a hosted-LLM tier in `tagger.generate_topic_label` (keep the phrase fallback), then `python -m server.cli rebuild --relabel`.
+- **Non-VTU papers:** new extraction strategy in `detector.py` returning the same row format, plus metadata patterns and subject codes.
+- **New export format:** add a generator to `exporter.py`, store it in `subject_snapshots` from `analysis._exports`, and add a download route.
+- **Different embedding model:** change `_REPO` in `embedder.py` (needs an ONNX export) and re-check `SIMILARITY_THRESHOLD`.
+- **Scaling beyond one server:** move rate limiting to Postgres/Redis and the job queue to a table with `SELECT … FOR UPDATE SKIP LOCKED`, then run separate API and worker processes.
