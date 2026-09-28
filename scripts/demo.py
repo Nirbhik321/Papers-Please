@@ -194,6 +194,8 @@ print("     now:", ingest.counts())
 """)
 
     print("3/4  Building the site in production mode (the API runs so pages are pre-rendered with data)…")
+    # A previous build's cached API responses would otherwise be baked into the pages
+    shutil.rmtree(ROOT / "web" / ".next", ignore_errors=True)
     api = start_api()
     try:
         wait_for(f"http://localhost:{API_PORT}/healthz")
