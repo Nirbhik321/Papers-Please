@@ -16,7 +16,7 @@ from typing import Optional
 import numpy as np
 import pdfplumber
 import pytesseract
-import fitz  # PyMuPDF — fast page-to-image
+import pymupdf as fitz  # PyMuPDF — fast page-to-image
 from PIL import Image
 
 
@@ -239,6 +239,10 @@ def _load_subject_map() -> dict[str, str]:
 
 VTU_SUBJECT_MAP: dict[str, str] = _load_subject_map()
 
+# VTU 2022-scheme codes: "B" + 1-5 letter branch/type prefix + 3 digits + optional
+# elective letter — BCS502, BIS601, BAI515B, BMATM101, BESCK104A, ...
+SUBJECT_CODE_RE = re.compile(r"(?<![A-Za-z0-9])(B[A-Z]{1,5}\d{3}[A-Z]?)(?![A-Za-z0-9])", re.IGNORECASE)
+
 MONTH_MAP = {
     "jan": "January", "feb": "February", "mar": "March", "apr": "April",
     "may": "May", "jun": "June", "jul": "July", "aug": "August",
@@ -302,7 +306,7 @@ def parse_content_metadata(rows: list[list[str]]) -> dict:
 
         # ── Inline subject code (e.g. "BCS502" anywhere in header rows) ───────
         if not meta["subject_code"]:
-            code_match = re.search(r"\b(BCS\d{3}[A-Z]?)\b", text, re.IGNORECASE)
+            code_match = SUBJECT_CODE_RE.search(text)
             if code_match:
                 code = code_match.group(1).upper()
                 meta["subject_code"] = code
@@ -323,7 +327,7 @@ def parse_filename_metadata(filename: str) -> dict:
     text = stem.replace("_", " ").replace("-", " ")
 
     # Subject code
-    code_match = re.search(r"\b(BCS\d{3}[A-Z]?)\b", stem, re.IGNORECASE)
+    code_match = SUBJECT_CODE_RE.search(stem)
     subject_code = code_match.group(1).upper() if code_match else "UNKNOWN"
     subject_name = VTU_SUBJECT_MAP.get(subject_code, subject_code)
 
