@@ -5,6 +5,7 @@ services:
     name: papers-please-api
     runtime: docker
     plan: free
+    region: singapore         # same region as the Supabase project
     healthCheckPath: /healthz
     envVars:
       # Supabase → Project Settings → Database → Connection string → "Session pooler"
@@ -13,9 +14,9 @@ services:
         sync: false
       - key: SUPABASE_URL
         sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
+      - key: SUPABASE_SERVICE_ROLE_KEY   # Supabase secret key (sb_secret_…)
         sync: false
-      - key: SUPABASE_ANON_KEY
+      - key: SUPABASE_ANON_KEY           # Supabase publishable key (sb_publishable_…)
         sync: false
       - key: ADMIN_EMAILS          # comma-separated moderator emails (Supabase Auth users)
         sync: false
