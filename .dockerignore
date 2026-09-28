@@ -1,0 +1,17 @@
+.git
+.venv
+venv
+data
+reports
+docs
+web
+tests
+server/tests
+examples
+output
+models
+**/__pycache__
+*.db
+.env
+.env.*
+_test_commandcode.py

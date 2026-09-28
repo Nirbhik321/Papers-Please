@@ -1,0 +1,33 @@
+# Render Blueprint — the Python API (uploads, moderation, publishing).
+# The website itself is deployed separately on Vercel from the web/ folder.
+services:
+  - type: web
+    name: papers-please-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      # Supabase → Project Settings → Database → Connection string → "Session pooler"
+      # (Render can't reach Supabase's IPv6-only direct connection)
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: ADMIN_EMAILS          # comma-separated moderator emails (Supabase Auth users)
+        sync: false
+      - key: ADMIN_TOKEN           # break-glass moderator token
+        generateValue: true
+      - key: IP_HASH_SALT
+        generateValue: true
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: CORS_ORIGINS          # e.g. https://papers-please.vercel.app
+        sync: false
+      - key: REVALIDATE_URL        # e.g. https://papers-please.vercel.app/api/revalidate
+        sync: false
+      - key: REVALIDATE_SECRET     # same value as the web app's REVALIDATE_SECRET
+        sync: false
