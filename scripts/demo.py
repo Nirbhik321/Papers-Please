@@ -253,8 +253,10 @@ def start() -> None:
     api = start_api()
     web = subprocess.Popen(npm("run", "start", "--", "-p", str(WEB_PORT)), env=web_env())
     try:
+        print("Starting the API and the website…", flush=True)
         wait_for(f"http://localhost:{API_PORT}/healthz")
         wait_for(f"http://localhost:{WEB_PORT}/how-it-works")
+        print("Refreshing every page so nothing shows old data…", flush=True)
         refresh_site()
         print(f"""
   ┌───────────────────────────────────────────────────────────────┐
@@ -268,7 +270,7 @@ def start() -> None:
   │  Files for the live upload: data\\demo\\live-upload\\             │
   │  Ctrl+C stops everything.                                      │
   └───────────────────────────────────────────────────────────────┘
-""")
+""", flush=True)
         while api.poll() is None and web.poll() is None:
             time.sleep(1)
         print("A server exited — stopping the demo.")

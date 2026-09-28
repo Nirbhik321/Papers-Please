@@ -28,7 +28,7 @@ The demo uses its own database in `data/demo/`, so rehearsing never touches your
 .venv\Scripts\python scripts\demo.py start
 ```
 
-Wait for the box that says **Papers Please demo is running**, then open these tabs:
+It prints *Starting…* and *Refreshing every page…* (about 20 seconds). Wait for the box that says **Papers Please demo is running**, then open these tabs:
 
 | Tab | URL |
 |---|---|
@@ -74,7 +74,7 @@ VTU questions repeat, sometimes word for word, often reworded. Students go throu
 - Drag **`DecJan_2025_-_Scheme  CN-1-2.pdf`** in and confirm it: it goes to **In review**. It's a different scan of the January 2025 exam, and each exam session can only have one live paper, so nothing gets counted twice.
 
 ### 6. Moderation (1 min) — tab 4
-- **Needs review** shows that upload with the reason.
+- **Needs review** shows that upload with its reason. The queue also already holds `DS JUNE JULY 25.pdf`, held because only 3 of 5 modules could be read from a faint scan. That's a good second example of what moderators catch.
 - Click it: the **side-by-side comparison** matches the new paper's questions against the live paper's, with similarity scores.
 - Click **Reject** (or **Replace live copy** if this scan is clearer). Point out the other controls: block uploader, fix the detected subject/session, reprocess.
 
@@ -107,5 +107,6 @@ VTU questions repeat, sometimes word for word, often reworded. Students go throu
 | `start` says a port is in use | Close the old server window (or restart the laptop), then run `start` again. |
 | An upload sits on "Read safely" for more than 2 minutes | Check the `start` window for errors. It's usually a very large scan. Carry on with the next file. |
 | A page shows old data | Refresh once. `start` refreshes every page at launch. |
+| A subject page breaks after typing its address by hand | Always use uppercase codes in the address bar (`/s/BCS502`, not `/s/bcs502`). Links inside the site are already uppercase. If it happens, stop, `reset`, `start`. |
 | You rehearsed and want a clean slate | Ctrl+C, then `demo.py reset`, then `demo.py start`. |
 | Everything is broken | `demo.py prepare` again (about 5 minutes). |
