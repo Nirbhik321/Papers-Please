@@ -155,3 +155,9 @@ engine = _make_engine()
 
 def init_db() -> None:
     metadata.create_all(engine)
+    if engine.dialect.name == "postgresql":
+        # Same guarantee as the Supabase migration, in case tables were created here:
+        # without RLS, Supabase's public REST API could read these tables.
+        with engine.begin() as conn:
+            for table in metadata.sorted_tables:
+                conn.execute(text(f'alter table "{table.name}" enable row level security'))

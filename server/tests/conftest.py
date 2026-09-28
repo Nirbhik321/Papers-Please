@@ -6,7 +6,8 @@ import tempfile
 from pathlib import Path
 
 _tmp = Path(tempfile.mkdtemp(prefix="papers-test-"))
-os.environ["DATABASE_URL"] = f"sqlite:///{(_tmp / 'test.db').as_posix()}"
+# TEST_DATABASE_URL runs the suite against a real (empty) Postgres instead.
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{(_tmp / 'test.db').as_posix()}"
 os.environ["STORAGE_DIR"] = str(_tmp / "storage")
 os.environ["ADMIN_TOKEN"] = "test-admin-token"
 os.environ["TURNSTILE_SECRET_KEY"] = ""
