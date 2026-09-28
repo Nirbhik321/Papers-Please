@@ -48,8 +48,11 @@ def _previous_topics(conn, code: str) -> dict[int, tuple[str, str | None]]:
     return {r.sub_question_id: (r.stable_key, r.label) for r in rows}
 
 
-def rebuild_subject(code: str) -> dict | None:
-    """Recompute and store the snapshot for one subject. Returns the snapshot data."""
+def rebuild_subject(code: str, relabel: bool = False) -> dict | None:
+    """Recompute and store the snapshot for one subject. Returns the snapshot data.
+
+    relabel=True regenerates every topic label instead of keeping the previous ones.
+    """
     with engine.begin() as conn:
         live = _approved_papers(conn, code)
         if not live:
@@ -57,7 +60,7 @@ def rebuild_subject(code: str) -> dict | None:
             conn.execute(delete(subject_snapshots).where(subject_snapshots.c.subject_code == code))
             data = None
         else:
-            data, ladders = _build(conn, code, live)
+            data, ladders = _build(conn, code, live, relabel)
             pdf, csv_text = _exports(data, ladders)
             years = [p["exam_year"] for p in live if p["exam_year"]]
             conn.execute(delete(subject_snapshots).where(subject_snapshots.c.subject_code == code))
@@ -71,7 +74,7 @@ def rebuild_subject(code: str) -> dict | None:
     return data
 
 
-def _build(conn, code: str, live: list[dict]) -> tuple[dict, dict]:
+def _build(conn, code: str, live: list[dict], relabel: bool = False) -> tuple[dict, dict]:
     by_id = {p["id"]: p for p in live}
     total = len(live)
     name = catalog.subject_name(code) or live[0]["subject_name"] or code
@@ -98,7 +101,7 @@ def _build(conn, code: str, live: list[dict]) -> tuple[dict, dict]:
         for rank, c in enumerate(scored, start=1):
             sq_ids = [a["sub_question_id"] for a in c["appearances"]]
             key, label = _carry_over(sq_ids, previous, used_keys)
-            if not label:
+            if relabel or not label:
                 label = tagger.generate_topic_label([text_by_sq[i] for i in sq_ids])
             label = _clean_label(label)
             c["topic_label"] = label

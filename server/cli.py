@@ -2,7 +2,7 @@
 cli.py — seed and maintain the database from the command line.
 
   python -m server.cli seed data/raw        import every PDF in a folder
-  python -m server.cli rebuild [CODE ...]   republish subjects (all if none given)
+  python -m server.cli rebuild [CODE ...]   republish subjects (all if none given; --relabel)
   python -m server.cli status               paper counts by status
 
 Seeding goes through exactly the same checks as a student upload: extraction in
@@ -51,22 +51,24 @@ def seed(folder: str) -> None:
         print(f"  {mark} {path.name}: {paper['status']} {paper['subject_code'] or ''}{reason}")
 
 
-def rebuild(codes: list[str]) -> None:
+def rebuild(codes: list[str], relabel: bool = False) -> None:
+    from server.analysis import rebuild_subject
     if not codes:
         with engine.connect() as conn:
             codes = [r[0] for r in conn.execute(
                 select(papers.c.subject_code).where(papers.c.status == "approved").distinct())]
     for code in codes:
         print(f"  rebuilding {code.upper()}")
-        worker.publish(code.upper())
-    worker.drain()
+        rebuild_subject(code.upper(), relabel=relabel)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m server.cli")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("seed").add_argument("folder")
-    sub.add_parser("rebuild").add_argument("codes", nargs="*")
+    rb = sub.add_parser("rebuild")
+    rb.add_argument("codes", nargs="*")
+    rb.add_argument("--relabel", action="store_true", help="regenerate topic labels too")
     sub.add_parser("status")
     args = ap.parse_args()
 
@@ -74,7 +76,7 @@ def main() -> None:
     if args.cmd == "seed":
         seed(args.folder)
     elif args.cmd == "rebuild":
-        rebuild(args.codes)
+        rebuild(args.codes, args.relabel)
     elif args.cmd == "status":
         for status, n in sorted(ingest.counts().items()):
             print(f"  {status:<22} {n}")
