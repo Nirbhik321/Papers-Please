@@ -12,6 +12,7 @@ Tables:
   topics           — deduplicated question groups per subject+module
   topic_appearances— which sub_questions belong to which topic
   subject_snapshots— the published, precomputed data for each subject
+  blocked_uploaders— pseudonymous uploaders a moderator has blocked
 """
 
 from datetime import datetime, timezone
@@ -119,6 +120,15 @@ subject_snapshots = Table(
     Column("cheatsheet_pdf", LargeBinary),
     Column("questions_csv", Text),
     Column("updated_at", DateTime(timezone=True), nullable=False, default=utcnow),
+)
+
+
+blocked_uploaders = Table(
+    "blocked_uploaders", metadata,
+    Column("uploader_hash", String(64), primary_key=True),
+    Column("reason", Text),
+    Column("blocked_by", String(255)),
+    Column("created_at", DateTime(timezone=True), nullable=False, default=utcnow),
 )
 
 
