@@ -105,3 +105,11 @@ def test_blocked_uploader(client, monkeypatch):
 
 def test_keepalive_touches_the_database(client):
     assert client.get("/api/keepalive").json() == {"ok": True}
+
+
+def test_supabase_key_headers():
+    from server.storage import supabase_headers
+    # New secret keys are not JWTs: apikey header only
+    assert supabase_headers("sb_secret_abc") == {"apikey": "sb_secret_abc"}
+    # Legacy service_role JWTs also go in Authorization
+    assert supabase_headers("eyJhbGciOi.x.y") == {"apikey": "eyJhbGciOi.x.y", "Authorization": "Bearer eyJhbGciOi.x.y"}

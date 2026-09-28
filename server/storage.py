@@ -36,13 +36,26 @@ class LocalStorage:
         self._path(key).unlink(missing_ok=True)
 
 
+def supabase_headers(key: str) -> dict:
+    """Headers for a server-side Supabase key.
+
+    New secret keys (sb_secret_…) are not JWTs and must only be sent as `apikey`;
+    Supabase turns them into a service-role token itself. Legacy service_role keys
+    are JWTs and also go in `Authorization: Bearer`.
+    """
+    headers = {"apikey": key}
+    if key.startswith("eyJ"):   # legacy JWT key
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
 class SupabaseStorage:
-    """Private Supabase Storage bucket, accessed with the service-role key."""
+    """Private Supabase Storage bucket, accessed with the project's secret key."""
 
     def __init__(self, url: str, service_key: str, bucket: str):
         self.base = f"{url}/storage/v1/object"
         self.bucket = bucket
-        self.headers = {"Authorization": f"Bearer {service_key}", "apikey": service_key}
+        self.headers = supabase_headers(service_key)
 
     def put(self, key: str, data: bytes) -> None:
         r = httpx.post(
