@@ -14,27 +14,26 @@ import re
 import streamlit as st
 import streamlit.components.v1 as components
 
-import pipeline
-from modules.db import get_distinct_subjects, init_db
+from modules.db import init_db
+from theme import inject_theme, exam_header
+from data_cache import get_distinct_subjects_cached, get_module_analysis_cached, db_version
 
 DB_PATH = str(Path(__file__).parent.parent / "data" / "papers.db")
 Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 init_db(DB_PATH)
 
-st.set_page_config(
-    page_title="Question Graph | Papers Please",
-    page_icon="🕸️",
-    layout="wide",
+inject_theme()
+
+exam_header(
+    title="QUESTION GRAPH",
+    subtitle="Nodes are question topics, coloured by module. Shaded regions are topic clusters. Node size = repeat frequency.",
+    time="Hover to inspect",
+    max_marks="Click to trace neighbours",
+    show_usn=False,
 )
 
-st.title("🕸️ Question Graph")
-st.caption(
-    "Nodes = question topics, coloured by module. "
-    "Shaded regions = topic clusters (questions that share a common theme). "
-    "Node size = repeat frequency. Hover to inspect, click to highlight neighbours."
-)
-
-subjects = get_distinct_subjects(DB_PATH)
+_db_v = db_version(DB_PATH)
+subjects = get_distinct_subjects_cached(DB_PATH, _db_v)
 if not subjects:
     st.info("No papers in the database yet. Go to **Upload** to add papers.")
     st.stop()
@@ -47,7 +46,7 @@ selected_label = st.selectbox("Subject", list(subject_options.keys()))
 selected_code  = subject_options[selected_label]
 
 try:
-    module_ladders, total_papers = pipeline.get_module_analysis(DB_PATH, selected_code)
+    module_ladders, total_papers = get_module_analysis_cached(DB_PATH, selected_code, _db_v)
 except Exception as e:
     st.error(f"Could not load analysis: {e}")
     st.stop()

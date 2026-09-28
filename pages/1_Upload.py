@@ -8,7 +8,9 @@ import pandas as pd
 import streamlit as st
 
 import pipeline
-from modules.db import get_all_papers, init_db, delete_paper, clear_all_data
+from modules.db import init_db
+from theme import inject_theme, exam_header, stamp
+from data_cache import get_all_papers_cached, db_version
 
 DB_PATH = str(Path(__file__).parent.parent / "data" / "papers.db")
 RAW_DIR = Path(__file__).parent.parent / "data" / "raw"
@@ -16,16 +18,15 @@ RAW_DIR.mkdir(parents=True, exist_ok=True)
 Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 init_db(DB_PATH)
 
-st.set_page_config(page_title="Upload | Papers Please", page_icon="📄", layout="wide")
+inject_theme()
 
-st.title("📄 Upload Question Papers")
-
-st.info(
-    "**Papers accumulate — they are never overwritten.** "
-    "Upload more papers for the same subject and the analysis updates automatically. "
-    "Different subjects (BCS502, BCS503 …) each get their own section in the Dashboard. "
-    "Files don't need a specific name — the subject is read from the PDF content too.",
-    icon="ℹ️",
+exam_header(
+    title="UPLOAD PAPERS",
+    subtitle="Two minutes of yours saves everyone else the same two minutes.",
+    time="~2 minutes",
+    max_marks="Unlimited uploads",
+    note="Papers accumulate — nothing is overwritten. This database is shared with everyone using the app.",
+    show_usn=False,
 )
 
 # ── Upload widget ───────────────────────────────────────────────────────────────
@@ -119,7 +120,7 @@ if uploaded_files and col_run.button("Process Papers", type="primary"):
 st.divider()
 st.subheader("Papers in Database")
 
-papers = get_all_papers(DB_PATH)
+papers = get_all_papers_cached(DB_PATH, db_version(DB_PATH))
 
 if not papers:
     st.info("No papers uploaded yet. Use the uploader above to get started.")
@@ -136,46 +137,16 @@ else:
         subj_name = subj_papers[0]["subject_name"]
 
         with st.expander(
-            f"**{subj}** — {subj_name}  ({len(subj_papers)} paper(s))",
+            f"{subj} — {subj_name}  ({len(subj_papers)} paper(s))",
             expanded=True,
         ):
+            st.markdown(stamp(subj), unsafe_allow_html=True)
             for p in subj_papers:
-                col_info, col_del = st.columns([5, 1])
                 period = f"{p.get('month') or '?'} {p.get('year') or '?'}"
-                col_info.markdown(
+                st.markdown(
                     f"📄 `{p['filename']}`  —  {period}  |  *{p.get('pdf_type', '?')}*"
                 )
-                if col_del.button("Remove", key=f"del_{p['id']}", type="secondary"):
-                    try:
-                        delete_paper(DB_PATH, p["id"])
-                        st.success(
-                            f"Removed **{p['filename']}**. "
-                            "Re-upload papers for this subject to refresh its analysis."
-                        )
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Could not remove paper: {e}")
 
-# ── Danger zone ─────────────────────────────────────────────────────────────────
-st.divider()
-with st.expander("⚠️ Danger Zone — Reset everything"):
-    st.warning(
-        "This permanently deletes **all papers and analysis** from the database. "
-        "Use this to start completely fresh."
+    st.caption(
+        "Need a paper removed, or the whole database reset? That's handled on the admin side."
     )
-    col_confirm, col_btn = st.columns([3, 1])
-    confirm_text = col_confirm.text_input(
-        "Type DELETE to confirm",
-        placeholder="DELETE",
-        label_visibility="collapsed",
-    )
-    if col_btn.button("Clear All Data", type="primary"):
-        if confirm_text.strip().upper() == "DELETE":
-            try:
-                clear_all_data(DB_PATH)
-                st.success("All data cleared. You can now start fresh.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Reset failed: {e}")
-        else:
-            st.error("Type DELETE in the box first to confirm.")

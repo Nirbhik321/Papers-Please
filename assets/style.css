@@ -1,0 +1,297 @@
+/* ============================================================
+   Papers Please — public-facing theme
+   Vernacular: VTU exam answer booklets. Paper tone, fountain-pen
+   ink, red-pen corrections, purple registrar-stamp ink.
+   Deliberately NOT used on the Admin page.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --paper: #E7E3D8;
+  --paper-card: #F2EFE7;
+  --ink: #232A3B;
+  --ink-soft: #5B6472;
+  --red-pen: #A93226;
+  --stamp-violet: #5C4B8A;
+  --rule: #C9C2AE;
+  --rule-strong: #9C9480;
+}
+
+/* ---------- base ---------- */
+[data-testid="stAppViewContainer"],
+[data-testid="stSidebar"] {
+  background: var(--paper);
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: var(--ink);
+}
+
+[data-testid="stHeader"] { background: transparent; }
+[data-testid="stDecoration"] { display: none; }
+[data-testid="stAppDeployButton"] { display: none; }
+footer { visibility: hidden; }
+
+h1, h2, h3 {
+  font-family: 'Fraunces', serif;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+p, li, label, span, div { color: var(--ink); }
+
+code, .stCaption, [data-testid="stCaptionContainer"] {
+  font-family: 'IBM Plex Mono', monospace !important;
+}
+
+hr { border-top: 1px dashed var(--rule-strong) !important; }
+
+/* ---------- sidebar nav (page_link) ---------- */
+[data-testid="stSidebar"] { border-right: 1px solid var(--rule-strong); }
+[data-testid="stSidebar"] h1 { font-size: 1.3rem; margin-top: .5rem; }
+
+[data-testid="stPageLink"] {
+  border-radius: 4px;
+  transition: background .15s ease;
+}
+[data-testid="stPageLink"]:hover { background: var(--paper-card); }
+[data-testid="stPageLink"] p {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-weight: 500;
+  font-size: 0.92rem;
+  letter-spacing: .02em;
+}
+
+/* ---------- buttons ---------- */
+[data-testid="stButton"] button,
+[data-testid="stFormSubmitButton"] button,
+[data-testid="stDownloadButton"] button {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
+  border-radius: 3px;
+  border: 1.5px solid var(--ink);
+  background: var(--paper-card);
+  color: var(--ink);
+  letter-spacing: .02em;
+}
+[data-testid="stButton"] button:hover,
+[data-testid="stFormSubmitButton"] button:hover,
+[data-testid="stDownloadButton"] button:hover {
+  border-color: var(--red-pen);
+  color: var(--red-pen);
+  background: var(--paper-card);
+}
+[data-testid="stButton"] button[kind="primary"],
+[data-testid="stFormSubmitButton"] button[kind="primary"] {
+  background: var(--ink);
+  color: var(--paper-card);
+  border-color: var(--ink);
+}
+[data-testid="stButton"] button[kind="primary"]:hover {
+  background: var(--red-pen);
+  border-color: var(--red-pen);
+  color: var(--paper-card);
+}
+
+/* ---------- alerts ---------- */
+[data-testid="stAlert"] {
+  border-radius: 2px;
+  border-left: 3px solid var(--stamp-violet);
+  background: var(--paper-card) !important;
+}
+[data-testid="stAlert"] p,
+[data-testid="stAlert"] span,
+[data-testid="stAlert"] div {
+  color: var(--ink) !important;
+}
+
+/* ---------- dropdown / select popovers ----------
+   These render in a portal at the document root, not inside
+   stAppViewContainer, so they need to be targeted directly. */
+div[data-baseweb="popover"],
+div[data-baseweb="menu"],
+ul[role="listbox"] {
+  background: var(--paper-card) !important;
+}
+div[data-baseweb="popover"] li,
+div[data-baseweb="menu"] li,
+ul[role="listbox"] li,
+li[role="option"] {
+  background: var(--paper-card) !important;
+  color: var(--ink) !important;
+}
+li[role="option"]:hover,
+li[aria-selected="true"] {
+  background: var(--paper) !important;
+}
+
+/* ---------- expanders / bordered containers ("cards") ---------- */
+[data-testid="stExpander"],
+[data-testid="stVerticalBlockBorderWrapper"] {
+  background: var(--paper-card);
+  border: 1px solid var(--rule) !important;
+  border-radius: 3px !important;
+}
+[data-testid="stExpander"] summary {
+  font-family: 'Fraunces', serif;
+  font-weight: 600;
+}
+
+/* ---------- metrics ---------- */
+[data-testid="stMetric"] {
+  background: var(--paper-card);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: .75rem .9rem;
+}
+[data-testid="stMetricValue"] {
+  font-family: 'IBM Plex Mono', monospace !important;
+  color: var(--red-pen);
+}
+[data-testid="stMetricLabel"] {
+  font-family: 'IBM Plex Sans', sans-serif !important;
+  color: var(--ink-soft) !important;
+}
+
+/* ---------- file uploader ---------- */
+[data-testid="stFileUploaderDropzone"] {
+  background: var(--paper-card);
+  border: 1.5px dashed var(--rule-strong);
+  border-radius: 4px;
+}
+
+/* ---------- inputs ---------- */
+[data-testid="stTextInput"] input,
+[data-testid="stSelectbox"] div[data-baseweb="select"] {
+  font-family: 'IBM Plex Mono', monospace;
+  background: var(--paper-card);
+  border-color: var(--rule-strong) !important;
+}
+
+/* ---------- tabs ---------- */
+[data-testid="stTabs"] [data-baseweb="tab"] {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
+}
+[data-testid="stTabs"] [aria-selected="true"] {
+  color: var(--red-pen) !important;
+}
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] {
+  background-color: var(--red-pen) !important;
+}
+
+/* ---------- progress bar ---------- */
+[data-testid="stProgress"] > div > div > div {
+  background-color: var(--red-pen) !important;
+}
+
+/* ---------- dataframe ---------- */
+[data-testid="stDataFrame"] {
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper-card);
+  color: var(--ink);
+}
+
+/* ============================================================
+   Signature component: the exam-paper header block
+   ============================================================ */
+.exam-header {
+  background: var(--paper-card);
+  border: 1px solid var(--ink);
+  border-radius: 3px;
+  padding: 1.5rem 2rem 1.75rem;
+  margin-bottom: 1.75rem;
+}
+
+.usn-strip { display: flex; align-items: center; gap: .6rem; margin-bottom: 1.1rem; }
+.usn-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  font-size: .78rem;
+  letter-spacing: .08em;
+  color: var(--ink-soft);
+}
+.usn-boxes { display: flex; gap: 3px; }
+.usn-box {
+  width: 20px; height: 24px;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper);
+  border-radius: 1px;
+}
+
+.exam-title {
+  font-family: 'Fraunces', serif;
+  font-weight: 700;
+  font-size: 2.6rem;
+  text-align: center;
+  margin: .2rem 0 .1rem;
+  letter-spacing: -0.02em;
+}
+.exam-subtitle {
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 1.02rem;
+  margin: 0 0 1.1rem;
+}
+.exam-header-row {
+  display: flex;
+  justify-content: space-between;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: .85rem;
+  color: var(--ink-soft);
+  border-top: 1px dashed var(--rule-strong);
+  padding-top: .7rem;
+  margin-top: .9rem;
+}
+.exam-note {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: .8rem;
+  color: var(--ink-soft);
+  margin-top: .35rem;
+}
+
+/* ---------- stamp badge (subject codes etc.) ---------- */
+.stamp {
+  display: inline-block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  font-size: .78rem;
+  letter-spacing: .04em;
+  padding: .18rem .55rem;
+  border: 1.5px dashed var(--stamp-violet);
+  border-radius: 10px;
+  color: var(--stamp-violet);
+  transform: rotate(-1.5deg);
+  background: rgba(92, 75, 138, 0.06);
+}
+.stamp-red {
+  border-color: var(--red-pen);
+  color: var(--red-pen);
+  background: rgba(169, 50, 38, 0.06);
+  transform: rotate(1.2deg);
+}
+
+/* ---------- priority mark (replaces emoji circles) ---------- */
+.mark-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem; height: 1.7rem;
+  border: 2px solid var(--red-pen);
+  border-radius: 50%;
+  color: var(--red-pen);
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  font-size: .68rem;
+  transform: rotate(-4deg);
+  margin-right: .4rem;
+}
+.mark-circle.low { border-color: var(--ink-soft); color: var(--ink-soft); opacity: .7; }
+.mark-circle.mid { border-color: var(--stamp-violet); color: var(--stamp-violet); }
+
+/* ---------- marks bracket (mono, like [06] in a paper's margin) ---------- */
+.marks-bracket {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
