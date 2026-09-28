@@ -114,7 +114,8 @@ _LEADING = re.compile(
     re.IGNORECASE,
 )
 _WITH_DIAGRAM = re.compile(
-    r"^with\s+(?:a\s+|an\s+)?(?:neat\s+|suitable\s+|relevant\s+)?(?:block\s+)?(?:diagrams?|sketch|examples?|figure)\s*,?\s*",
+    r"\bwith\s+(?:a\s+|an\s+)?(?:neat\s+|suitable\s+|relevant\s+|clear\s+)?(?:block\s+|labell?ed\s+)?"
+    r"(?:diagrams?|sketch(?:es)?|examples?|figures?)\b\s*,?\s*",
     re.IGNORECASE,
 )
 _LIST_MARKER = re.compile(r"(?<![A-Za-z])(?:[a-d]|i{1,3}|iv)\)\s*", re.IGNORECASE)
@@ -148,10 +149,11 @@ def _label_from_phrase(texts: list[str]) -> str | None:
             words = [w.strip("()'\"") for w in clause.split()]
             words = [w for w in words if w]
             if len(words) >= 1 and len(" ".join(words)) >= 3:
+                words = words[:6]
                 while words and words[-1].lower() in _SMALL:
                     words.pop()
                 if words:
-                    return _titlecase(words[:6])
+                    return _titlecase(words)
     return None
 
 
