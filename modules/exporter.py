@@ -1,7 +1,7 @@
 """
 exporter.py — Generate exports: PDF cheat sheet and CSV question bank.
 
-PDF: one page per subject with ranked questions, frequency bars, marks ladder.
+PDF: an A4 cheat sheet — the most repeated topics per module and the marks they cover.
 CSV: ordered question bank for teachers to build internal assessments.
 """
 
@@ -11,7 +11,7 @@ from datetime import date
 
 from fpdf import FPDF, XPos, YPos
 
-from modules.scorer import format_years, format_appearances, MAX_MODULE_MARKS
+from modules.scorer import format_years, MAX_MODULE_MARKS
 
 
 # ── ASCII sanitizer (Helvetica supports Latin-1 only) ─────────────────────────
@@ -37,16 +37,20 @@ def _safe(text: str) -> str:
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
-# ── Colour palette ─────────────────────────────────────────────────────────────
-BLACK       = (0,   0,   0)
-WHITE       = (255, 255, 255)
-DARK_GREY   = (40,  40,  40)
-MID_GREY    = (120, 120, 120)
-LIGHT_GREY  = (230, 230, 230)
-ACCENT      = (30,  100, 200)   # blue for module headers
-GREEN       = (20,  140, 60)    # for guaranteed marks
-ORANGE      = (210, 100, 0)     # for medium-priority
-RED_DARK    = (180, 30,  30)    # for top-priority stars
+# ── Palette (matches the website) ──────────────────────────────────────────────
+INK        = (27,  34,  51)
+INK_2      = (74,  81,  99)
+LINE       = (221, 215, 201)
+BAND       = (242, 239, 231)
+STAMP      = (169, 50,  38)
+AMBER      = (208, 138, 60)
+OUTLINE    = (138, 142, 153)
+OK_GREEN   = (30,  90,  57)
+WHITE      = (255, 255, 255)
+
+PAGE_W, MARGIN = 210, 15
+CONTENT_W = PAGE_W - 2 * MARGIN
+ROWS_PER_MODULE = 3
 
 
 def generate_cheat_sheet(
@@ -55,9 +59,11 @@ def generate_cheat_sheet(
     module_ladders: dict[int, list[dict]],   # {module_no: [step, ...]}
     total_papers: int,
     output_path: str,
+    site_url: str = "",
 ) -> str:
     """
-    Generate the cheat sheet PDF.
+    Generate the one-page A4 cheat sheet: for each module, the topics that
+    repeat most (up to the point where the module's marks are covered).
 
     Args:
         subject_name: e.g. "Computer Networks"
@@ -65,173 +71,156 @@ def generate_cheat_sheet(
         module_ladders: {module_no: result of scorer.build_marks_ladder()}
         total_papers: number of papers analysed
         output_path: file path to write the PDF
+        site_url: optional website base, printed in the footer
 
     Returns:
         output_path (for convenience)
     """
     pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_margins(MARGIN, 14, MARGIN)
+    pdf.set_auto_page_break(auto=True, margin=16)
+    pdf.set_title(_safe(f"{subject_code} {subject_name} - cheat sheet"))
     pdf.add_page()
-    pdf.set_margins(15, 15, 15)
 
     _draw_header(pdf, subject_name, subject_code, total_papers)
-
-    for module_no in sorted(module_ladders.keys()):
+    for module_no in sorted(module_ladders):
         steps = module_ladders[module_no]
-        if not steps:
-            continue
-        _draw_module_section(pdf, module_no, steps, total_papers)
+        if steps:
+            _draw_module(pdf, module_no, steps, total_papers)
+    _draw_footer(pdf, subject_code, site_url)
 
-    _draw_footer(pdf)
     pdf.output(output_path)
     return output_path
 
 
-# ── Header ─────────────────────────────────────────────────────────────────────
+def _tier(step: dict, total_papers: int) -> tuple[tuple, tuple]:
+    """(fill, border) of the frequency square: 5-6 of 6 papers, 3-4, 1-2."""
+    pct = step["frequency_pct"]
+    if total_papers > 1 and pct >= 0.8:
+        return STAMP, STAMP
+    if total_papers > 1 and pct >= 0.5:
+        return AMBER, AMBER
+    return WHITE, OUTLINE
+
+
+def _square(pdf: FPDF, x: float, y: float, fill: tuple, border: tuple, size: float = 2.6):
+    pdf.set_fill_color(*fill)
+    pdf.set_draw_color(*border)
+    pdf.set_line_width(0.35)
+    pdf.rect(x, y, size, size, style="DF")
+
 
 def _draw_header(pdf: FPDF, subject_name: str, subject_code: str, total_papers: int):
-    # Title bar
-    pdf.set_fill_color(*ACCENT)
-    pdf.rect(x=15, y=pdf.get_y(), w=180, h=12, style="F")
-    pdf.set_text_color(*WHITE)
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.cell(180, 12, _safe(f"  PAPERS PLEASE  -  {subject_code} {subject_name}"),
-             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-    pdf.set_text_color(*MID_GREY)
+    top = pdf.get_y()
+    pdf.set_text_color(*STAMP)
+    pdf.set_font("Helvetica", "B", 7)
+    pdf.cell(0, 4, "PAPERS PLEASE  -  CHEAT SHEET", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_text_color(*INK)
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(125, 9, _safe(f"{subject_code}  {subject_name}"[:60]), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_text_color(*INK_2)
     pdf.set_font("Helvetica", "", 8)
-    pdf.cell(180, 5,
-             f"  Based on {total_papers} papers  ·  Generated {date.today().strftime('%d %b %Y')}",
+    papers = f"{total_papers} paper{'s' if total_papers != 1 else ''}"
+    pdf.cell(125, 5, f"From {papers}  -  generated {date.today().strftime('%d %b %Y')}",
              new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    bottom = pdf.get_y()
+
+    # Legend, top right
+    legend = [(STAMP, STAMP, "Very likely  -  most papers"), (AMBER, AMBER, "Likely  -  half or more"),
+              (WHITE, OUTLINE, "Occasional")]
+    pdf.set_font("Helvetica", "", 7.5)
+    pdf.set_text_color(*INK_2)
+    for i, (fill, border, label) in enumerate(legend):
+        y = top + 3 + i * 5
+        _square(pdf, 150, y, fill, border)
+        pdf.set_xy(154, y - 0.9)
+        pdf.cell(40, 4.4, label)
+
+    pdf.set_y(max(bottom, top + 18) + 1.5)
+    pdf.set_draw_color(*INK)
+    pdf.set_line_width(0.6)
+    pdf.line(MARGIN, pdf.get_y(), PAGE_W - MARGIN, pdf.get_y())
+    pdf.ln(3.5)
+
+
+def _draw_module(pdf: FPDF, module_no: int, steps: list[dict], total_papers: int):
+    full_at = next((s["rank"] for s in steps if s["full_coverage"]), None)
+    shown = steps[: min(full_at or ROWS_PER_MODULE, ROWS_PER_MODULE)]
+    last = shown[-1]
+    if full_at and full_at <= ROWS_PER_MODULE:
+        ladder = f"Top {full_at} -> full {MAX_MODULE_MARKS}M"
+    else:
+        ladder = f"Top {len(shown)} -> ~{last['cumulative_expected']:.0f} of {MAX_MODULE_MARKS}M"
+
+    if pdf.get_y() > 297 - 16 - 30:   # keep a module's band with its first rows
+        pdf.add_page()
+
+    y = pdf.get_y()
+    pdf.set_fill_color(*BAND)
+    pdf.rect(MARGIN, y, CONTENT_W, 6.5, style="F")
+    pdf.set_xy(MARGIN + 2.5, y + 1)
+    pdf.set_text_color(*INK)
+    pdf.set_font("Helvetica", "B", 9.5)
+    pdf.cell(100, 4.5, f"Module {module_no}")
+    pdf.set_text_color(*OK_GREEN)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_xy(MARGIN, y + 1)
+    pdf.cell(CONTENT_W - 2.5, 4.5, ladder, align="R")
+    pdf.set_y(y + 8)
+
+    for step in shown:
+        _draw_row(pdf, step, total_papers)
     pdf.ln(3)
 
 
-# ── Module section ─────────────────────────────────────────────────────────────
+def _draw_row(pdf: FPDF, step: dict, total_papers: int):
+    if pdf.get_y() > 297 - 16 - 14:   # never split a row across pages
+        pdf.add_page()
+    y = pdf.get_y()
+    fill, border = _tier(step, total_papers)
+    _square(pdf, MARGIN + 2.5, y + 1.1, fill, border)
 
-def _draw_module_section(pdf: FPDF, module_no: int, steps: list[dict], total_papers: int):
-    # Module header
-    pdf.set_fill_color(*LIGHT_GREY)
-    pdf.set_text_color(*DARK_GREY)
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(180, 7, f"  Module {module_no}", fill=True,
-             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.ln(1)
+    text_x, text_w = MARGIN + 8, CONTENT_W - 32
+    pdf.set_xy(text_x, y)
+    pdf.set_text_color(*INK)
+    pdf.set_font("Helvetica", "B", 9.5)
+    pdf.cell(text_w, 4.8, _safe(step["topic_label"] or step["representative_text"][:60])[:80])
 
-    for step in steps:
-        _draw_question_row(pdf, step, total_papers)
+    # Right-hand numbers: papers and usual marks
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(*INK_2)
+    pdf.set_xy(PAGE_W - MARGIN - 22, y)
+    pdf.cell(11, 4.8, f"{step['frequency']}/{total_papers}", align="R")
+    pdf.set_text_color(*INK)
+    pdf.set_font("Helvetica", "B", 8.5)
+    marks = int(round(step.get("avg_marks") or 0))
+    pdf.cell(11, 4.8, f"{marks}M" if marks else "-", align="R")
 
-    # Marks ladder summary
-    _draw_marks_ladder(pdf, steps)
-    pdf.ln(4)
+    text = " ".join(step["representative_text"].split())
+    text = text if len(text) <= 170 else text[:167].rsplit(" ", 1)[0] + "..."
+    pdf.set_xy(text_x, y + 4.8)
+    pdf.set_text_color(*INK_2)
+    pdf.set_font("Helvetica", "", 7.8)
+    pdf.multi_cell(text_w, 3.6, _safe(text), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+    pdf.set_draw_color(*LINE)
+    pdf.set_line_width(0.2)
+    pdf.line(MARGIN, pdf.get_y() + 1.2, PAGE_W - MARGIN, pdf.get_y() + 1.2)
+    pdf.ln(2.4)
 
 
-def _draw_question_row(pdf: FPDF, step: dict, total_papers: int):
-    rank = step["rank"]
-    label = _safe(step["topic_label"] or step["representative_text"][:60])
-    freq = step["frequency"]
-    freq_pct = step["frequency_pct"]
-    avg_marks = step["avg_marks"]
-    years = step.get("years", [])
-    appearances = step.get("appearances", [])
-    text_preview = _safe(step["representative_text"][:100])
-
-    # Star rating
-    stars = "***" if freq_pct >= 0.8 else ("** " if freq_pct >= 0.5 else "*  ")
-    star_color = RED_DARK if freq_pct >= 0.8 else (ORANGE if freq_pct >= 0.5 else MID_GREY)
-
-    pdf.set_text_color(*star_color)
-    pdf.set_font("Helvetica", "B", 9)
-    pdf.cell(10, 6, stars)
-
-    pdf.set_text_color(*DARK_GREY)
-    pdf.set_font("Helvetica", "B", 9)
-    pdf.cell(100, 6, label[:55])
-
-    # Frequency bar
-    bar_w = int(freq_pct * 40)
-    x = pdf.get_x()
-    y = pdf.get_y() + 1
-    pdf.set_fill_color(*ACCENT)
-    pdf.rect(x=x, y=y, w=bar_w, h=4, style="F")
-    pdf.set_fill_color(*LIGHT_GREY)
-    pdf.rect(x=x + bar_w, y=y, w=40 - bar_w, h=4, style="F")
-    pdf.set_x(x + 42)
-
-    pdf.set_text_color(*MID_GREY)
-    pdf.set_font("Helvetica", "", 8)
-    pdf.cell(18, 6, f"{freq}/{total_papers}")
-    pdf.set_font("Helvetica", "B", 8)
-    pdf.set_text_color(*DARK_GREY)
-    pdf.cell(10, 6, f"{int(avg_marks)}M", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-    # Year + position metadata
-    years_str = _safe(format_years(years))
-    seen_str = _safe(format_appearances(appearances))
-    pdf.set_text_color(*MID_GREY)
+def _draw_footer(pdf: FPDF, subject_code: str, site_url: str):
+    pdf.set_auto_page_break(False)
+    pdf.set_y(-13)
+    pdf.set_draw_color(*LINE)
+    pdf.set_line_width(0.2)
+    pdf.line(MARGIN, pdf.get_y(), PAGE_W - MARGIN, pdf.get_y())
+    pdf.ln(1.5)
+    pdf.set_text_color(*INK_2)
     pdf.set_font("Helvetica", "", 7)
-    pdf.set_x(20)
-    pdf.cell(160, 4, f"Years: {years_str}  |  Seen in: {seen_str}",
-             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-    # Question text preview
-    suffix = "..." if len(step["representative_text"]) > 100 else ""
-    pdf.set_x(20)
-    pdf.set_font("Helvetica", "I", 7)
-    pdf.set_text_color(*MID_GREY)
-    pdf.multi_cell(160, 4, f'"{text_preview}{suffix}"',
-                   new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.ln(1)
-
-
-def _draw_marks_ladder(pdf: FPDF, steps: list[dict]):
-    """Draw the cumulative marks guarantee box."""
-    pdf.set_fill_color(240, 248, 255)
-    pdf.set_draw_color(*ACCENT)
-    start_y = pdf.get_y()
-
-    # Draw box content
-    pdf.set_text_color(*ACCENT)
-    pdf.set_font("Helvetica", "B", 8)
-    pdf.set_x(15)
-    pdf.cell(180, 5, "  MARKS YOU LOCK IN", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-    for step in steps:
-        rank = step["rank"]
-        label = step["topic_label"] or "..."
-        cum = step["cumulative_expected"]
-        full = step["full_coverage"]
-
-        color = GREEN if full else (ORANGE if cum >= MAX_MODULE_MARKS * 0.5 else MID_GREY)
-        pdf.set_text_color(*color)
-        pdf.set_font("Helvetica", "", 8)
-        pdf.set_x(18)
-        checkmark = "[OK]" if full else "    "
-        pdf.cell(
-            180, 4,
-            _safe(
-                f"  {checkmark} Study top {rank} topic{'s' if rank > 1 else ''}"
-                f" ({label[:30]}) -> Expected ~{cum:.0f}M"
-                f"{'  << FULL COVERAGE' if full else ''}"
-            ),
-            new_x=XPos.LMARGIN, new_y=YPos.NEXT,
-        )
-        if full:
-            break
-
-    pdf.ln(1)
-
-
-# ── Footer ─────────────────────────────────────────────────────────────────────
-
-def _draw_footer(pdf: FPDF):
-    pdf.set_y(-12)
-    pdf.set_text_color(*MID_GREY)
-    pdf.set_font("Helvetica", "I", 7)
-    pdf.cell(
-        0, 5,
-        "Papers Please  -  Frequency analysis only - not a guarantee of exam content.",
-        align="C",
-    )
+    left = f"Every topic and wording: {site_url.rstrip('/')}/s/{subject_code}" if site_url else "Papers Please"
+    pdf.cell(CONTENT_W / 2, 4, _safe(left))
+    pdf.cell(CONTENT_W / 2, 4, "Based on how often topics repeated - not a guarantee of what will appear.", align="R")
 
 
 # ── CSV question bank ─────────────────────────────────────────────────────────

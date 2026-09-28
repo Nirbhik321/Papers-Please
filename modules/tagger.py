@@ -134,9 +134,78 @@ def _to_display(word: str) -> str:
     return word.title()
 
 
+# Instruction words that open exam questions ("Explain the …", "What is …")
+_LEADING = re.compile(
+    r"^(?:"
+    r"(?:what|which|how|why|when)\s+(?:is\s+meant\s+by|is|are|do|does|are\s+the|is\s+the)\s+"
+    r"|(?:briefly|clearly|neatly)\s+"
+    r"|(?:explain|define|describe|discuss|derive|prove|show|compare|contrast|differentiate|distinguish|"
+    r"list|write|draw|illustrate|state|evaluate|analy[sz]e|outline|find|solve|give|mention|enumerate|"
+    r"elaborate|sketch|construct|design|develop|obtain|calculate|compute|determine|identify|demonstrate|"
+    r"justify|apply|implement|summari[sz]e)(?:\s+|$)(?:and\s+(?:explain|describe|discuss)\s+|out\s+|down\s+)?"
+    r"|(?:a|an|the|about|in\s+brief|in\s+detail|short\s+notes?\s+on|notes?\s+on|(?:the\s+)?following|"
+    r"between|different|various|any\s+(?:two|three|four))(?:\s+|$)"
+    r")+",
+    re.IGNORECASE,
+)
+_WITH_DIAGRAM = re.compile(
+    r"\bwith\s+(?:a\s+|an\s+)?(?:neat\s+|suitable\s+|relevant\s+|clear\s+)?(?:block\s+|labell?ed\s+)?"
+    r"(?:diagrams?|sketch(?:es)?|examples?|figures?)\b\s*,?\s*",
+    re.IGNORECASE,
+)
+_LIST_MARKER = re.compile(r"(?<![A-Za-z])(?:[a-d]|i{1,3}|iv)\)\s*", re.IGNORECASE)
+_TRAILING = re.compile(r"\s+(?:in\s+detail|in\s+brief|briefly|neatly|in\s+short)$", re.IGNORECASE)
+_CLAUSE_SPLIT = re.compile(r"[?.;:]\s*|,\s*|\s+(?:with|using|for\s+the\s+given|by\s+taking)\s+", re.IGNORECASE)
+_SUB_LABEL = re.compile(r"^[a-cA-C][.)]\s+")
+_WELL_FORMED = re.compile(
+    r"^(?:what|which|how|why|explain|define|describe|discuss|derive|compare|differentiate|distinguish|"
+    r"list|write|draw|illustrate|state|briefly|give|find|solve|design|develop|construct)\b",
+    re.IGNORECASE,
+)
+_SMALL = {"of", "and", "in", "for", "to", "on", "the", "a", "an", "vs", "or", "with", "by", "at"}
+
+
+def _titlecase(words: list[str]) -> str:
+    out = []
+    for i, w in enumerate(words):
+        if any(c.isdigit() for c in w) or "/" in w or (w.isupper() and len(w) > 1):
+            out.append(w)                       # TCP/IP, IPv4, CRC stay as written
+        elif i > 0 and w.lower() in _SMALL:
+            out.append(w.lower())
+        else:
+            out.append(w[:1].upper() + w[1:])
+    return " ".join(out)
+
+
+def _label_from_phrase(texts: list[str]) -> str | None:
+    """
+    Fallback: pull the subject of the question out of its shortest wording —
+    "What is data communication? List …" → "Data Communication".
+    """
+    # Prefer well-formed questions ("Describe …") over OCR fragments, then the shortest
+    cleaned = [_SUB_LABEL.sub("", t.strip()) for t in texts]
+    candidates = sorted((t for t in cleaned if len(t) >= 12),
+                        key=lambda t: (0 if _WELL_FORMED.match(t) else 1, len(t))) or cleaned
+    for text in candidates[:3]:
+        text = _LIST_MARKER.sub(" ", _WITH_DIAGRAM.sub("", text))
+        for clause in _CLAUSE_SPLIT.split(text):
+            clause = _TRAILING.sub("", _LEADING.sub("", clause.strip())).strip(" -()'\"")
+            words = [w.strip("()'\"") for w in clause.split()]
+            words = [w for w in words if w]
+            if len(words) >= 1 and len(" ".join(words)) >= 3:
+                words = words[:6]
+                while words and words[-1].lower() in _SMALL:
+                    words.pop()
+                if words:
+                    return _titlecase(words)
+    return None
+
+
 def _label_with_keywords(texts: list[str]) -> str:
     """
-    Fallback: extract most-frequent meaningful unigrams and bigrams as a topic label.
+    Fallback when no LLM is available: a phrase taken from the question itself
+    ("What is data communication? List …" → "Data Communication"), or failing
+    that the most frequent meaningful unigrams and bigrams.
 
     Strategy:
     1. Collect candidate words (unigrams, 3+ chars, not in stop list).
@@ -144,6 +213,10 @@ def _label_with_keywords(texts: list[str]) -> str:
     3. Score bigrams × 2 vs unigrams × 1; pick top candidates.
     4. Return "Word1 Word2" or "Word1 & Word2" for co-equal leaders.
     """
+    phrase = _label_from_phrase(texts)
+    if phrase:
+        return phrase
+
     unigram_counts: Counter = Counter()
     bigram_counts: Counter = Counter()
 

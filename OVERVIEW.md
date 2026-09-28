@@ -4,6 +4,8 @@ Built by **Prabhat Anil Bajpai** and **Nirbhik Chaki**
 CMR Institute of Technology, Bengaluru
 GitHub: https://github.com/Nirbhik321/Papers-Please
 
+> **Note:** this overview describes the original single-machine Streamlit version. The analysis pipeline it explains (extraction, parsing, clustering, scoring, labelling) is unchanged, but the app is now a Next.js website backed by a FastAPI server and Supabase — see [README.md](README.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ---
 
 ## What This Is

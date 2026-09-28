@@ -396,7 +396,7 @@ def parse_rows(raw_rows: list[list[str]]) -> list[dict]:
 _VTU_META = re.compile(r"\b(?:L[1-6]|CO\d+|col\b|co[1-9]\b)\b", re.IGNORECASE)
 _MARKS_INLINE = re.compile(r"\[?\s*\d{1,2}\s*\]?\s*(?:marks?|M\b)?", re.IGNORECASE)
 _LEADING_LABEL = re.compile(r"^(?:Q\.?\s*\d{1,2}|[a-c]\.)\s*", re.IGNORECASE)
-_WHITESPACE = re.compile(r"\s{2,}")
+_WHITESPACE = re.compile(r"\s+")   # also folds the newlines pdfplumber leaves inside cells
 
 
 def _clean_question_text(text: str) -> str:

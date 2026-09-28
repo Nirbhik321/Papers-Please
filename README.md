@@ -4,7 +4,7 @@
 
 Built by **Nirbhik Chaki** and **Prabhat Anil Bajpai** at **CMR Institute of Technology, Bengaluru**.
 
-Upload past VTU question papers. Get a ranked, module-wise breakdown of what to study first — backed by semantic NLP, not guesswork.
+A shared website where students find every past VTU paper for a subject already analysed: a ranked, module-wise breakdown of what to study first — backed by semantic NLP, not guesswork. When a new paper comes out, anyone can upload it and the subject updates for everyone.
 
 ![System Architecture](docs/architecture.png)
 
@@ -23,7 +23,9 @@ Upload past VTU question papers. Get a ranked, module-wise breakdown of what to 
 - [Data Model](#data-model)
 - [Problems We Faced and How We Solved Them](#problems-we-faced-and-how-we-solved-them)
 - [What We Learned](#what-we-learned)
+- [Upload Safety](#upload-safety)
 - [Setup and Usage](#setup-and-usage)
+- [Deployment](#deployment)
 - [Subject Map](#subject-map--adding-new-subjects)
 - [Limitations and Future Work](#limitations-and-future-work)
 
@@ -52,7 +54,7 @@ VTU (Visvesvaraya Technological University) exams follow the CBCS pattern: 5 mod
 
 Papers Please takes those same PDFs and turns them into actionable intelligence:
 
-1. **Upload** any number of VTU past papers (scanned or digital — both work).
+1. **Upload** VTU past papers (scanned or digital — both work) into a shared bank that every student can use.
 2. The system **extracts every sub-question** with its marks, Bloom's taxonomy level, and course outcome.
 3. An NLP model **detects when the same question appears across papers** — even when worded differently.
 4. Each topic gets a **priority score** based on how often it repeats and how recently.
@@ -69,16 +71,18 @@ The system has a clean layered architecture:
 
 ![System Architecture](docs/architecture.png)
 
-- **Streamlit UI** — Upload papers, view analysis, download exports
-- **Pipeline Orchestrator** (`pipeline.py`) — Coordinates 7 processing steps
-- **Processing Modules** — Each handles one concern: extraction, parsing, embedding, clustering, scoring, labelling, exporting
-- **Storage Layer** — SQLite database for persistence, JSON cache for debugging
+- **Website** (`web/`, Next.js on Vercel) — pre-rendered pages for every subject; search, tabs, "studied" ticks and the topic graph all run in the browser
+- **API + worker** (`server/`, FastAPI on Render) — serves precomputed subject snapshots, takes uploads, and runs the heavy work on one background thread
+- **Processing Modules** (`modules/`) — each handles one concern: extraction, parsing, embedding, clustering, scoring, labelling, exporting
+- **Storage** — Supabase Postgres (row-level security on every table) and a private Supabase Storage bucket for original PDFs; SQLite and a local folder when running on your machine
+
+> The diagrams in `docs/` show the original single-machine Streamlit version. [ARCHITECTURE.md](ARCHITECTURE.md) describes the current system in detail.
 
 ---
 
 ## The 7-Step Pipeline
 
-Every PDF goes through this pipeline from upload to dashboard:
+Every PDF goes through this pipeline from upload to the subject page:
 
 ![Pipeline Flow](docs/pipeline.png)
 
@@ -115,7 +119,7 @@ Raw table rows become structured sub-question records. The parser handles:
 
 ### Step 3: Save to DB
 
-Paper metadata + all sub-questions are inserted into SQLite. Duplicate filenames are detected and skipped (or cleaned and re-inserted when force mode is enabled).
+Before anything is saved, the uploader confirms the detected subject and exam session. Exact duplicates are caught by file hash, a second paper for an exam session that already has one goes to a moderator, and so does anything that looks partial or unfamiliar. See [Upload Safety](#upload-safety).
 
 ### Step 4: Deduplicate
 
@@ -131,11 +135,11 @@ Recent appearances count more. A question in 4 out of 5 papers (80% frequency) w
 
 ### Step 6: Tag Topics
 
-Each question cluster gets a short human-readable label. If Ollama (local LLM) is available, it generates labels like "CRC Encoder and Decoder". Otherwise, a keyword-frequency fallback extracts the top content words.
+Each question cluster gets a short human-readable label. If Ollama (local LLM) is available, it generates labels like "CRC Encoder and Decoder". Otherwise the label is pulled out of the question itself — "What is data communication? List…" becomes "Data Communication".
 
-### Step 7: Persist Analysis
+### Step 7: Publish
 
-Canonical questions and their appearance records are written to the database for the dashboard and exports.
+The subject's ranking, cheat-sheet PDF and CSV are stored as one precomputed snapshot, and the website is told to refresh that subject's page. Topic keys stay stable between rebuilds, so students' "studied" ticks survive new papers arriving.
 
 ---
 
@@ -234,13 +238,16 @@ Questions are sorted by weighted score. Expected marks are accumulated top-down.
 | **PyMuPDF (fitz)** | PDF-to-image rendering | Fastest Python PDF renderer — 300 DPI grayscale in milliseconds |
 | **pytesseract** | OCR wrapper | Industry-standard Tesseract OCR with Python bindings |
 | **Pillow** | Image format bridge | Converts between NumPy arrays and PIL Images for Tesseract |
-| **sentence-transformers** | Sentence-BERT embeddings | Pre-trained paraphrase models, one-line API, CPU-friendly |
+| **ONNX Runtime + tokenizers** | Sentence-BERT embeddings | Same paraphrase model and outputs as sentence-transformers, without PyTorch — fits a 512 MB server |
 | **numpy** | Matrix operations | Embedding arithmetic, dot products, centroid computation |
-| **pandas** | Tabular display | Streamlit's `st.dataframe` needs pandas DataFrames |
 | **fpdf2** | PDF generation | Lightweight PDF builder — no heavyweight dependencies like ReportLab |
-| **Streamlit** | Web UI | Fastest way to build data apps in Python — zero frontend code needed |
-| **ollama** | Optional LLM labelling | Local LLM inference for generating topic labels (graceful fallback if unavailable) |
-| **SQLite** | Database | Zero-config, file-based, perfect for single-user local apps |
+| **FastAPI + uvicorn** | API server | Typed request models, async uploads, auto-generated docs, and the whole pipeline stays in Python |
+| **SQLAlchemy Core** | Database layer | One schema for SQLite (local) and Postgres (production) |
+| **Supabase** | Postgres, file storage, moderator sign-in | Generous free tier; `pg_cron` + `pg_net` keep the API awake |
+| **Next.js + Tailwind** | Website | Pre-rendered, indexable pages with instant client-side interaction; incremental regeneration refreshes a subject the moment it changes |
+| **d3-force** | Topic graph | Small force-layout library, loaded only when the graph is opened |
+| **Render / Vercel** | Hosting | Free Docker hosting for the API; free static + ISR hosting for the site |
+| **ollama** | Optional LLM labelling | Local LLM labels when available; the phrase-based fallback needs nothing |
 
 ---
 
@@ -267,11 +274,12 @@ data = pytesseract.image_to_data(
 # Returns dict with keys: text, left, top, width, height, conf
 ```
 
-**Loading a paraphrase-tuned Sentence-BERT and encoding questions:**
+**Running the paraphrase-tuned Sentence-BERT on ONNX Runtime (mean pooling + L2 norm):**
 ```python
-from sentence_transformers import SentenceTransformer
-model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
-embeddings = model.encode(texts, normalize_embeddings=True)
+hidden = session.run(None, {"input_ids": ids, "attention_mask": mask, "token_type_ids": types})[0]
+m = mask[:, :, None]
+pooled = (hidden * m).sum(axis=1) / m.sum(axis=1)          # mean over real tokens
+embeddings = pooled / np.linalg.norm(pooled, axis=1, keepdims=True)
 # Now cosine_sim(a, b) == dot(a, b) since both are L2-normalised
 ```
 
@@ -282,11 +290,10 @@ new_centroid = old_centroid + (new_vec - old_centroid) / n_members
 new_centroid = new_centroid / np.linalg.norm(new_centroid)  # re-normalise
 ```
 
-**SQLite with WAL mode and foreign keys for concurrent reads:**
+**One live paper per exam session, enforced by the database:**
 ```python
-conn = sqlite3.connect(db_path)
-conn.execute("PRAGMA journal_mode=WAL")
-conn.execute("PRAGMA foreign_keys=ON")
+Index("uq_papers_live_session", papers.c.session_key, unique=True,
+      sqlite_where=text("status = 'approved'"), postgresql_where=text("status = 'approved'"))
 ```
 
 ---
@@ -324,16 +331,16 @@ The CSV question bank is designed for **dual use**:
 
 ## Data Model
 
-The application uses SQLite with 4 tables:
+The same schema runs on SQLite locally and Postgres (Supabase) in production:
 
-![Data Model](docs/data_model.png)
+- **papers** — One row per upload, with its moderation status (`processing`, `awaiting_confirmation`, `review`, `approved`, `rejected`, `failed`), detected subject and exam session, and the SHA-256 of the file (UNIQUE — the same file can't be added twice).
+- **sub_questions** — Every sub-question extracted from a paper.
+- **topics** — Deduplicated question groups per subject and module: representative text, label, frequency, weighted score, and a stable key.
+- **topic_appearances** — Links each topic to every sub-question occurrence. This is how we track "Q3a in Jan 2025 and Q4b in Jul 2024 are the same question."
+- **subject_snapshots** — The published result for each subject: the JSON the website renders, the cheat-sheet PDF and the CSV.
+- **blocked_uploaders** — Uploaders a moderator has blocked.
 
-- **papers** — One row per uploaded PDF. Filename has a UNIQUE constraint.
-- **sub_questions** — Every individual sub-question extracted from every paper. Linked to its source paper.
-- **canonical_questions** — Deduplicated question groups. Contains the representative text, topic label, frequency, and weighted score.
-- **appearances** — Join table linking each canonical question to every sub-question occurrence across papers. This is how we track "Q3a in Jan 2025 and Q4b in Dec 2024 are the same question."
-
-Canonical questions and appearances are deleted and rebuilt from scratch whenever new papers are added for a subject, ensuring consistency.
+Topics and snapshots are rebuilt from scratch whenever a subject's live papers change, ensuring consistency.
 
 ---
 
@@ -404,8 +411,23 @@ Tesseract output contains artifacts: "AExplain" (run-together prefix), leading p
 
 ### End-to-End ML Pipeline Design
 - Separating extraction (I/O bound) from analysis (compute bound) in the pipeline makes progress reporting clean
-- SQLite is more than enough for single-user local apps — no need for PostgreSQL or Redis
+- SQLite was plenty for a single-user local app; turning it into a shared website is what made Postgres, a job queue and moderation necessary
 - Graceful degradation (Ollama fallback, OCR cleaning, flexible metadata extraction) makes the difference between a demo that works and one that crashes
+
+---
+
+## Upload Safety
+
+Anyone can upload, so every upload is treated as hostile until it proves otherwise:
+
+- **Quick checks first** — under 10 MB, a real PDF header, a Cloudflare Turnstile human check, and at most 10 uploads an hour per uploader. Moderators can block an uploader; uploaders are identified by a keyed hash of their IP, never the IP itself.
+- **Read in a sandbox** — PDF parsing and OCR run in a separate, throwaway process with no access to secrets, a time limit, and (on Linux) CPU, memory and file-size limits. Encrypted files, more than 6 pages, or oversized pages are refused.
+- **Stored by hash, never by name** — a crafted filename can't escape the storage folder, and originals are never shown to anyone.
+- **Nothing is counted twice** — the same file is recognised by its SHA-256; each exam session can have only one live paper; a paper whose questions mostly match a live one is held for review.
+- **Nothing junk goes live** — files that aren't question papers are rejected; partial scans and unknown subject codes wait for a moderator.
+- **Locked-down data** — Supabase's public API can't read any table (row-level security with no policies); only the API server can.
+
+The full threat table is in [ARCHITECTURE.md](ARCHITECTURE.md#upload-security).
 
 ---
 
@@ -413,78 +435,113 @@ Tesseract output contains artifacts: "AExplain" (run-together prefix), leading p
 
 ### Prerequisites
 
-1. **Python 3.11+**
+1. **Python 3.11+** and **Node.js 20+**
 2. **Tesseract OCR** installed and on PATH
-   - Windows: download from [UB-Mannheim](https://github.com/UB-Mannheim/tesseract/wiki), add install directory to PATH
+   - Windows: download from [UB-Mannheim](https://github.com/UB-Mannheim/tesseract/wiki), add the install directory to PATH
    - Linux: `sudo apt install tesseract-ocr`
    - macOS: `brew install tesseract`
-3. (Optional) [Ollama](https://ollama.com) running locally with a model like `phi3:mini` for better topic labels
+3. (Optional) [Ollama](https://ollama.com) running locally with a model like `phi3:mini` for LLM topic labels
 
-### Installation
+### Run it locally
+
+Everything works without any accounts: the API uses SQLite (`data/app.db`) and a local folder for uploads.
 
 ```bash
 git clone https://github.com/Nirbhik321/Papers-Please.git
 cd Papers-Please
-pip install -r requirements.txt
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt        # macOS/Linux: .venv/bin/pip
+cp .env.example .env                                   # set ADMIN_TOKEN to something long and random
 ```
 
-On first run, `sentence-transformers` will download the `paraphrase-MiniLM-L6-v2` model (~90 MB).
-
-### Running the App
+Seed the database from a folder of past papers (runs the same checks as a student upload):
 
 ```bash
-streamlit run app.py
+.venv/Scripts/python -m server.cli seed data/raw
 ```
 
-Open `http://localhost:8501` in your browser.
+Start the API (http://localhost:8000, docs at `/api/docs`):
 
-### Workflow
-
-1. Go to the **Upload** page and drop your VTU past paper PDFs
-   - Naming files like `JAN 2025 BCS502.pdf` gives the best metadata extraction
-   - If the filename has no subject code, the system reads it from the PDF content
-2. Click **Process Papers** and watch the progress bar
-3. Switch to the **Dashboard** to see your analysis
-   - Each subject gets its own card with module tabs
-   - Questions are ranked by repeat frequency and recency
-   - The "Marks You Lock In" ladder shows cumulative coverage
-4. Download a **PDF cheat sheet** for quick revision
-5. Download a **CSV question bank** for detailed analysis or internal assessment preparation
-
-### CLI Usage
-
-```python
-from pipeline import run
-
-summary = run(
-    pdf_paths=["data/raw/JAN 2025 BCS502.pdf", "data/raw/DEC 2024 BCS502.pdf"],
-    db_path="data/papers.db",
-)
-print(summary)
+```bash
+.venv/Scripts/python -m uvicorn server.main:app --reload
 ```
+
+Start the website (http://localhost:3000):
+
+```bash
+cd web
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+On first use the embedding model (~90 MB) is downloaded from Hugging Face and cached.
+
+### Using the site
+
+1. **Home** — search by code or name (press `/`), or filter by branch and semester.
+2. **Subject page** — module tabs, topics ranked by how often they repeat, every wording with the paper and question number it came from, "Mark studied" ticks that fill your coverage meter, the marks ladder, and a topic graph. Download the one-page **cheat sheet** or the **CSV question bank**.
+3. **Upload** — drop PDFs, watch them get checked and read, confirm the subject and exam session, and see them go live.
+4. **Moderation** — `/admin` (not linked anywhere). Sign in with the `ADMIN_TOKEN` locally, or a Supabase account listed in `ADMIN_EMAILS` in production.
+
+### Command line
+
+```bash
+python -m server.cli seed <folder>               # import every PDF in a folder
+python -m server.cli rebuild [CODE ...]          # republish subjects (all if none)
+python -m server.cli rebuild --relabel           # …and regenerate topic labels
+python -m server.cli status                      # paper counts by status
+```
+
+### Tests
+
+```bash
+.venv/Scripts/python -m pytest server/tests
+```
+
+The end-to-end tests use the sample papers in `data/raw` and are skipped if they aren't present. Set `TEST_DATABASE_URL` to an empty Postgres database to run the suite against Postgres.
+
+---
+
+## Deployment
+
+The free-tier setup: **Vercel** (website) + **Render** (API) + **Supabase** (database, storage, moderator sign-in).
+
+1. **Supabase**
+   - Create a project. In the SQL editor run `supabase/migrations/20260928000000_schema.sql` (tables with row-level security + the private `uploads` bucket).
+   - Under Authentication, create an account for each moderator.
+   - Copy the **session pooler** connection string, the project URL, and the anon and service-role keys.
+2. **Render** — New → Blueprint → this repository (`render.yaml`). Fill in the environment variables:
+   `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `ADMIN_EMAILS`, `TURNSTILE_SECRET_KEY`, `CORS_ORIGINS` (your Vercel URL), `SITE_URL`, `REVALIDATE_URL` (`<vercel url>/api/revalidate`), `REVALIDATE_SECRET`.
+3. **Keep-alive** — replace `YOUR-SERVICE` in `supabase/migrations/20260928000100_keepalive_cron.sql` with your Render hostname and run it in the Supabase SQL editor. It pings `/api/keepalive` every 6 minutes — keeping the free Render service awake and giving Supabase the database activity it needs to not pause the project — and clears the cron history every 3 days.
+4. **Vercel** — import the repository with **Root Directory = `web`** and set `NEXT_PUBLIC_API_URL` (your Render URL), `REVALIDATE_SECRET`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+5. **Seed** — from your machine, point `DATABASE_URL`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` at production and run `python -m server.cli seed <folder>`, then `python -m server.cli rebuild` with `REVALIDATE_URL`/`REVALIDATE_SECRET` set so the site refreshes.
+
+Cloudflare Turnstile keys are free: create a widget for your Vercel domain.
 
 ---
 
 ## Subject Map — Adding New Subjects
 
-Papers Please ships with a \subjects.yaml\ file in the project root containing **145+ subjects** across all VTU 2022 scheme computer-science programmes, semesters 1-6:
+Papers Please ships with a `subjects.yaml` file in the project root containing **145+ subjects** across all VTU 2022 scheme computer-science programmes, semesters 1-6:
 
 | Branch | Prefix | Semesters covered |
 |--------|--------|-------------------|
-| Computer Science and Engineering (CSE) | \BCS\ | 1-6 |
-| Information Science and Engineering (ISE) | \BIS\ | 5-6 |
-| AI and Machine Learning (AIML) | \BAI\ | 5-6 |
-| AI and Data Science (AIDS) | \BAD\ | 5-6 |
-| Data Science (DS) | \BDS\ | 6 |
-| Cross-branch open electives | \BEE\, \BCV\, \BME\, etc. | 6 |
+| Computer Science and Engineering (CSE) | `BCS` | 1-6 |
+| Information Science and Engineering (ISE) | `BIS` | 5-6 |
+| AI and Machine Learning (AIML) | `BAI` | 5-6 |
+| AI and Data Science (AIDS) | `BAD` | 5-6 |
+| Data Science (DS) | `BDS` | 6 |
+| Cross-branch open electives | `BEE`, `BCV`, `BME`, etc. | 6 |
 
-**Adding a new subject requires zero code changes.** Just open \subjects.yaml\ and add a line:
+**Adding a new subject requires zero code changes.** Just open `subjects.yaml` and add a line:
 
-\\yaml
+```yaml
 BCS303: Operating Systems
 BEE654B: Technologies of Renewable Energy Sources
-\
-The app reloads the map at startup and falls back to the hardcoded defaults if the file is missing.
+```
+
+The map is read at startup and falls back to the hardcoded defaults if the file is missing. Papers for codes that aren't in the file can still be uploaded — they wait for a moderator.
 
 ---
 
@@ -496,7 +553,9 @@ The app reloads the map at startup and falls back to the hardcoded defaults if t
 | Tesseract struggles with low-quality scans | Heavy shadows, rotation, coffee stains degrade OCR | Pre-processing with deskew, contrast normalisation |
 | Single-paper subjects show no frequency data | Rankings fall back to marks-based sorting (still useful) | Show confidence intervals or flag as insufficient data |
 | No cross-module similarity linking | Same topic in different modules treated as separate | By design (VTU assigns topics to modules), but could be a future option |
-| Local-only deployment | No sharing between students or study groups | Web deployment with multi-user sessions and shared question banks |
+| Topic labels come from the question text on the free server | Some labels are clunky, especially from noisy OCR | A hosted LLM tier in `tagger.py`, then `rebuild --relabel` |
+| Desktop-first website | Works on phones but isn't designed for them yet | Mobile layouts for the home, subject and upload pages |
+| One API process (in-memory rate limits, one worker thread) | Fine for a free server, not for horizontal scaling | Move the queue and limits into Postgres, split API and worker |
 
 ---
 

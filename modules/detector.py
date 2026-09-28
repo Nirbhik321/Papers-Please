@@ -16,7 +16,7 @@ from typing import Optional
 import numpy as np
 import pdfplumber
 import pytesseract
-import fitz  # PyMuPDF — fast page-to-image
+import pymupdf as fitz  # PyMuPDF — fast page-to-image
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 
@@ -256,6 +256,27 @@ def _load_subject_map() -> dict[str, str]:
 
 VTU_SUBJECT_MAP: dict[str, str] = _load_subject_map()
 
+# VTU 2022-scheme codes: "B" + 1-5 letter branch/type prefix + 3 digits + optional
+# elective letter — BCS502, BIS601, BAI515B, BMATM101, BESCK104A, ...
+SUBJECT_CODE_RE = re.compile(r"(?<![A-Za-z0-9])(B[A-Z]{1,5}\d{3}[A-Z]?)(?![A-Za-z0-9])", re.IGNORECASE)
+
+# OCR often misreads digits in the code on scanned headers: "BCSS02", "8CS5O2".
+# Those are mapped back only when the result is a real subject code.
+_OCR_CODE_RE = re.compile(r"(?<![A-Za-z0-9])([B8][A-Z]{1,5})([0-9SOIL]{3})([A-Z]?)(?![A-Za-z0-9])")
+_OCR_DIGITS = str.maketrans("SOIL", "5011")
+
+
+def find_subject_code(text: str) -> Optional[str]:
+    """An explicit subject code in `text`, tolerating common OCR digit mistakes."""
+    m = SUBJECT_CODE_RE.search(text)
+    if m:
+        return m.group(1).upper()
+    for m in _OCR_CODE_RE.finditer(text.upper()):
+        code = "B" + m.group(1)[1:] + m.group(2).translate(_OCR_DIGITS) + m.group(3)
+        if code in VTU_SUBJECT_MAP:
+            return code
+    return None
+
 MONTH_MAP = {
     "jan": "January", "feb": "February", "mar": "March", "apr": "April",
     "may": "May", "jun": "June", "jul": "July", "aug": "August",
@@ -282,8 +303,12 @@ def parse_content_metadata(rows: list[list[str]]) -> dict:
         "exam_type": "regular",
     }
 
-    # Reverse map: subject name → code (case-insensitive partial match)
-    name_to_code = {v.lower(): k for k, v in VTU_SUBJECT_MAP.items()}
+    # Reverse map: subject name → codes. The same title (e.g. "Computer Networks")
+    # exists under several branches, so a name alone only decides when it's unique.
+    name_to_codes: dict[str, list[str]] = {}
+    for code, name in VTU_SUBJECT_MAP.items():
+        name_to_codes.setdefault(name.lower(), []).append(code)
+    explicit_code = False
 
     found_exam_line = False
 
@@ -324,18 +349,20 @@ def parse_content_metadata(rows: list[list[str]]) -> dict:
                 if not any(w in clean.lower() for w in skip_words):
                     meta["subject_name"] = clean
                     # Try to match against known subjects
-                    for name_lower, code in name_to_code.items():
+                    for name_lower, codes in name_to_codes.items():
                         if name_lower in clean.lower() or clean.lower() in name_lower:
-                            meta["subject_code"] = code
+                            if len(codes) == 1 and not meta["subject_code"]:
+                                meta["subject_code"] = codes[0]
                             break
 
-        # ── Inline subject code (e.g. "BCS502" or "BAI501" anywhere in header rows) ──
-        if not meta["subject_code"]:
-            code_match = re.search(r"\b(B[A-Z]{2}\d{3}[A-Z]?)\b", text, re.IGNORECASE)
-            if code_match:
-                code = code_match.group(1).upper()
+        # ── Inline subject code (e.g. "BCS502" anywhere in header rows) ───────
+        # An explicit code beats one guessed from the subject name.
+        if not explicit_code:
+            code = find_subject_code(text)
+            if code:
+                explicit_code = True
                 meta["subject_code"] = code
-                meta["subject_name"] = meta["subject_name"] or VTU_SUBJECT_MAP.get(code, code)
+                meta["subject_name"] = VTU_SUBJECT_MAP.get(code) or meta["subject_name"] or code
 
     return meta
 
@@ -353,10 +380,8 @@ def parse_filename_metadata(filename: str) -> dict:
     stem = Path(filename).stem
     text = stem.replace("_", " ").replace("-", " ")
 
-    # Subject code — matches all VTU 2022 scheme branch prefixes
-    # Use `text` (underscores/dashes replaced by spaces) so \b word boundaries work
-    code_match = re.search(r"\b(B[A-Z]{2}\d{3}[A-Z]?)\b", text, re.IGNORECASE)
-    subject_code = code_match.group(1).upper() if code_match else "UNKNOWN"
+    # Subject code — any VTU 2022-scheme code, tolerating OCR digit mistakes
+    subject_code = find_subject_code(text) or "UNKNOWN"
     subject_name = VTU_SUBJECT_MAP.get(subject_code, subject_code)
 
     # Year — take the latest 4-digit year found
