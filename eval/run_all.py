@@ -113,6 +113,8 @@ def main() -> None:
     dst.mkdir(parents=True, exist_ok=True)
     for f in FIGURES.glob("*.pdf"):
         shutil.copy2(f, dst / f.name)
+    from eval import latex
+    latex.build(res)
     print(f"Wrote {results_path}, RESULTS.md and {len(list(FIGURES.glob('*.pdf')))} figures.")
 
 
