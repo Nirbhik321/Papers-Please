@@ -78,10 +78,12 @@ def _build(conn, code: str, live: list[dict], relabel: bool = False) -> tuple[di
     total = len(live)
     name = catalog.subject_name(code) or live[0]["subject_name"] or code
 
-    sqs = [
+    printed = [
         {**dict(r), "year": by_id[r.paper_id]["exam_year"]}
         for r in conn.execute(select(sub_questions).where(sub_questions.c.paper_id.in_(list(by_id)))).mappings()
     ]
+    printed_marks = {q["id"]: q["marks"] for q in printed}
+    sqs = scorer.fill_missing_marks(printed)   # estimates feed the ranking; pages show printed marks
     previous = _previous_topics(conn, code)
     conn.execute(delete(topics).where(topics.c.subject_code == code))
 
@@ -128,7 +130,7 @@ def _build(conn, code: str, live: list[dict], relabel: bool = False) -> tuple[di
                 "sessions": session_ids,
                 "wordings": [
                     {"session": a["paper_id"], "where": f"Q{a['q_no']}{a['sub_q']}",
-                     "marks": a.get("marks"), "text": text_by_sq[a["sub_question_id"]]}
+                     "marks": printed_marks[a["sub_question_id"]], "text": text_by_sq[a["sub_question_id"]]}
                     for a in sorted(c["appearances"], key=lambda a: session_ids.index(a["paper_id"]))
                 ],
             })

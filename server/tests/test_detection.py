@@ -62,9 +62,26 @@ def test_both_grouping_methods_merge_paraphrases_and_keep_others_apart():
              "Describe the CRC encoder and decoder with a neat diagram.",
              "Explain the TCP three-way handshake."]
     qs = [{"id": i, "text": t, "marks": 10, "year": 2025, "paper_id": i, "q_no": 1, "sub_q": "a"} for i, t in enumerate(texts)]
-    vecs = {texts[0]: [1.0, 0.0], texts[1]: [0.96, 0.28], texts[2]: [0.0, 1.0]}
-    encode = lambda ts: np.array([vecs.get(t, [0.0, 1.0]) for t in ts], dtype=np.float32)
+    # Stub encoder keyed on words that survive cleaning: the two CRC phrasings are close (cos 0.96)
+    def encode(ts):
+        return np.array([[0.0, 1.0] if "TCP" in t else [0.96, 0.28] if "Describe" in t else [1.0, 0.0] for t in ts],
+                        dtype=np.float32)
     for method in ("average", "greedy"):
         groups = sorted(sorted(a["sub_question_id"] for a in c["appearances"])
                         for c in deduplicate(qs, threshold=0.725, encode=encode, method=method))
         assert groups == [[0, 1], [2]], (method, groups)
+
+
+def test_missing_marks_share_what_the_other_parts_leave():
+    from modules.scorer import fill_missing_marks
+
+    qs = [
+        {"paper_id": 1, "q_no": 1, "sub_q": "a", "marks": 8},
+        {"paper_id": 1, "q_no": 1, "sub_q": "b", "marks": None},
+        {"paper_id": 1, "q_no": 1, "sub_q": "c", "marks": None},
+        {"paper_id": 1, "q_no": 2, "sub_q": "a", "marks": None},
+        {"paper_id": 2, "q_no": 1, "sub_q": "a", "marks": 10},
+    ]
+    out = fill_missing_marks(qs)
+    assert [q["marks"] for q in out] == [8, 6, 6, 20, 10]
+    assert qs[1]["marks"] is None   # inputs are not modified

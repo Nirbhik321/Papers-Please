@@ -26,6 +26,26 @@ RECENCY_DECAY = 0.85
 MAX_MODULE_MARKS = 20   # each module contributes max 20M to exam total
 
 
+def fill_missing_marks(sub_questions: list[dict], question_marks: int = MAX_MODULE_MARKS) -> list[dict]:
+    """
+    OCR often loses the narrow marks column. A VTU question's parts total 20, so
+    each part without marks gets an equal share of what its siblings leave over.
+    Returns copies; parts with marks are untouched.
+    """
+    by_question: dict[tuple, list[dict]] = {}
+    for q in sub_questions:
+        by_question.setdefault((q.get("paper_id"), q.get("q_no")), []).append(q)
+    filled = {}
+    for parts in by_question.values():
+        unknown = [p for p in parts if not p.get("marks")]
+        if not unknown:
+            continue
+        left = max(question_marks - sum(p["marks"] for p in parts if p.get("marks")), 0)
+        for p in unknown:
+            filled[id(p)] = round(left / len(unknown)) or None
+    return [{**q, "marks": filled[id(q)]} if id(q) in filled else q for q in sub_questions]
+
+
 def score_canonicals(
     canonicals: list[dict],
     total_papers: int,
