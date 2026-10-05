@@ -72,6 +72,7 @@ def _clean_for_embed(text: str) -> str:
 def deduplicate(
     sub_questions: list[dict],
     threshold: float = SIMILARITY_THRESHOLD,
+    encode=None,
 ) -> list[dict]:
     """
     Group sub_questions into canonical question clusters.
@@ -80,6 +81,8 @@ def deduplicate(
         sub_questions: list of sub_question dicts from db.get_sub_questions_for_module()
                        Each dict must have: id, text, marks, year, paper_id, q_no, sub_q
         threshold: cosine similarity above which two questions are "the same"
+        encode: texts -> L2-normalised embeddings; defaults to embedder.encode
+                (the evaluation swaps in other models here)
 
     Returns:
         List of canonical dicts:
@@ -107,7 +110,7 @@ def deduplicate(
     valid = list(valid)
     clean_texts = list(clean_texts)
 
-    embeddings = embedder.encode(clean_texts)   # shape (N, 384), L2-normalised
+    embeddings = (encode or embedder.encode)(clean_texts)   # shape (N, D), L2-normalised
 
     # ── Centroid-based greedy clustering  (pass 1) ────────────────────────────
     # For each new question, compare against the centroid of every existing
