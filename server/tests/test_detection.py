@@ -53,3 +53,18 @@ def test_month_joined_to_year_in_filename():
     assert parse_filename_metadata("BCS502-Nov2024.pdf")["month"] == "November"
     assert parse_filename_metadata("JuneJuly_2025.pdf")["month"] is None       # run-together: leave to content
     assert parse_filename_metadata("Marks Mayank BCS502 2024.pdf")["month"] is None
+
+
+def test_both_grouping_methods_merge_paraphrases_and_keep_others_apart():
+    import numpy as np
+    from modules.deduplicator import deduplicate
+    texts = ["Explain the CRC encoder and decoder with an example.",
+             "Describe the CRC encoder and decoder with a neat diagram.",
+             "Explain the TCP three-way handshake."]
+    qs = [{"id": i, "text": t, "marks": 10, "year": 2025, "paper_id": i, "q_no": 1, "sub_q": "a"} for i, t in enumerate(texts)]
+    vecs = {texts[0]: [1.0, 0.0], texts[1]: [0.96, 0.28], texts[2]: [0.0, 1.0]}
+    encode = lambda ts: np.array([vecs.get(t, [0.0, 1.0]) for t in ts], dtype=np.float32)
+    for method in ("average", "greedy"):
+        groups = sorted(sorted(a["sub_question_id"] for a in c["appearances"])
+                        for c in deduplicate(qs, threshold=0.725, encode=encode, method=method))
+        assert groups == [[0, 1], [2]], (method, groups)

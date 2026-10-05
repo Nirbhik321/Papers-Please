@@ -79,8 +79,8 @@ def _greedy_clusters(embeddings: np.ndarray, threshold: float) -> list[list[int]
     #
     # Centroid is kept as the running mean of member embeddings (no re-encode).
 
-    n = len(valid)
-    cluster_members:   list[list[int]]    = []   # indices into `valid`
+    n = len(embeddings)
+    cluster_members:   list[list[int]]    = []   # indices into the embedding rows
     cluster_centroids: list[np.ndarray]   = []   # mean embedding per cluster
 
     for i in range(n):
