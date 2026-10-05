@@ -126,15 +126,34 @@ def _extract_sub_q(cell: str) -> Optional[str]:
     return None
 
 
+_BLOOM_CELL = re.compile(r"^\W*L\s*\d", re.IGNORECASE)                 # "L2", "L1,L2"
+_CO_CELL = re.compile(r"C\s*[Oo0Q]|^\W*\d\s*,\s*\d")                       # "CO4", "C04", "1, 2"
+_CELL_JUNK = re.compile(r"[\s|\[\](){}:;.,'\"‘’`—\-_/\\]+")
+
+
+def _marks_from_cells(cells: list[str]) -> Optional[int]:
+    """
+    Marks from the right-hand cells of a row, one cell at a time. Bloom ("L2") and
+    CO ("CO4", "3, 4") cells are skipped: their digits are not marks. OCR noise like
+    "| 10", "10]" or "110" (a table rule read as 1) is tolerated.
+    """
+    for cell in cells:
+        if not cell or _BLOOM_CELL.search(cell) or _CO_CELL.search(cell):
+            continue
+        digits = _CELL_JUNK.sub("", cell)
+        if digits.isdigit():
+            if len(digits) == 3 and digits[0] in "17":          # "|10" read as "110"
+                digits = digits[1:]
+            if len(digits) <= 2 and 1 <= int(digits) <= 20:
+                return int(digits)
+    return None
+
+
 def _extract_marks(cell: str) -> Optional[int]:
-    """Extract marks from noisy cell like '(06—', '/ 06', '} 10', '110'."""
+    """Fallback for merged cells like '(06—', '/ 06', '} 10': first number in 4-20."""
     # Find all 1-2 digit numbers in range 4-20
-    candidates = [int(m) for m in re.findall(r"\b(\d{1,2})\b", cell)
-                  if 4 <= int(m) <= 20]
-    # Prefer multiples of 2 (VTU marks are always even: 4,6,8,10,12)
-    multiples = [v for v in candidates if v % 2 == 0]
-    if multiples:
-        return multiples[0]
+    cell = re.sub(r"C\s*[Oo0Q]\s*\d+|L\s*\d", " ", cell)   # drop CO / Bloom tokens first
+    candidates = [int(m) for m in re.findall(r"\b(\d{1,2})\b", cell) if 4 <= int(m) <= 20]
     return candidates[0] if candidates else None
 
 
@@ -272,15 +291,17 @@ def parse_rows(raw_rows: list[list[str]]) -> list[dict]:
 
     def _scan_right_cells(row: list[str]) -> tuple:
         """Scan cols 3+ for marks, bloom, co — handles column merging by PSM 6."""
-        marks = bloom = co = None
-        right_text = " ".join(row[3:]) if len(row) > 3 else ""
-        # Also include text col fragments that accidentally captured metadata
-        marks = _extract_marks(right_text)
+        right = row[3:] if len(row) > 3 else []
+        right_text = " ".join(right)
+        marks = _marks_from_cells(right)
+        if marks is None:
+            marks = _extract_marks(" ".join(c for c in right if not _BLOOM_CELL.search(c) and not _CO_CELL.search(c)))
         bloom = _extract_bloom(right_text)
         co    = _extract_co(right_text)
         return marks, bloom, co
 
     _SUB_Q_SEQUENCE = ["a", "b", "c", "d"]
+    _MAX_AUTO_PARTS = 3          # unlabelled parts beyond c start the next question
     last_sub_q_idx = -1
 
     for row in raw_rows:
@@ -307,10 +328,16 @@ def parse_rows(raw_rows: list[list[str]]) -> list[dict]:
         if _OR_ROW.match(text_cell) or _OR_ROW.match(full):
             continue
 
-        # Extract structured values
+        # Extract structured values. OCR often shifts labels one column right:
+        # "Q.2." lands in the sub-part column and "a. |" at the start of the text.
         q_no_val  = _extract_q_no(_get_cell(row, Q_NO_COL))
         sub_q_raw = _get_cell(row, SUB_Q_COL)
-        sub_q_val = _extract_sub_q(sub_q_raw)
+        if q_no_val is None and len(sub_q_raw.strip()) <= 8 and re.search(r"[Qq]", sub_q_raw):
+            q_no_val = _extract_q_no(sub_q_raw)
+        sub_q_val = _extract_sub_q(sub_q_raw) if not re.search(r"[Qq]\W*\d", sub_q_raw) else None
+        lead_sub, text_cell = _split_leading_sub(text_cell)
+        if sub_q_val is None:
+            sub_q_val = lead_sub
 
         # Scan ALL right-side cells for marks/bloom/co (handles PSM-6 merging)
         marks_val, bloom_val, co_val = _scan_right_cells(row)
@@ -325,6 +352,8 @@ def parse_rows(raw_rows: list[list[str]]) -> list[dict]:
         if text_is_question:
             flush()
 
+            if q_no_val and not sub_q_val:
+                sub_q_val = "a"                      # a printed Q number always opens part a
             if sub_q_val:
                 current_sub_q = sub_q_val
                 last_sub_q_idx = (
@@ -333,9 +362,13 @@ def parse_rows(raw_rows: list[list[str]]) -> list[dict]:
                     else last_sub_q_idx + 1
                 )
             else:
-                last_sub_q_idx += 1
-                if last_sub_q_idx >= len(_SUB_Q_SEQUENCE):
+                # No label could be read. VTU questions have at most three parts that
+                # total 20 marks, so a 4th part — or one past 20 marks — is a new question.
+                done = sum(q["marks"] or 0 for q in sub_questions if q["q_no"] == current_q_no)
+                if last_sub_q_idx + 1 >= _MAX_AUTO_PARTS or (current_q_no and done >= 20):
                     last_sub_q_idx = 0
+                else:
+                    last_sub_q_idx += 1
                 current_sub_q = _SUB_Q_SEQUENCE[last_sub_q_idx]
 
             if q_no_val:
@@ -397,6 +430,17 @@ _VTU_META = re.compile(r"\b(?:L[1-6]|CO\d+|col\b|co[1-9]\b)\b", re.IGNORECASE)
 _MARKS_INLINE = re.compile(r"\[?\s*\d{1,2}\s*\]?\s*(?:marks?|M\b)?", re.IGNORECASE)
 _LEADING_LABEL = re.compile(r"^(?:Q\.?\s*\d{1,2}|[a-c]\.)\s*", re.IGNORECASE)
 _WHITESPACE = re.compile(r"\s+")   # also folds the newlines pdfplumber leaves inside cells
+
+
+_LEAD_SUB = re.compile(r"^\s*\(?([a-dA-D])\s*[.)]\s*\|?\s*")
+
+
+def _split_leading_sub(text: str) -> tuple[Optional[str], str]:
+    """'a. | Explain…' → ('a', 'Explain…') when OCR pushed the sub-label into the text cell."""
+    m = _LEAD_SUB.match(text)
+    if m and len(text) > m.end() + 8:
+        return m.group(1).lower(), text[m.end():]
+    return None, text
 
 
 def _clean_question_text(text: str) -> str:
