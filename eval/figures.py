@@ -1,5 +1,6 @@
 """Figures for the paper (IEEE single column = 3.5 in). Vector PDF + PNG preview."""
 
+import re
 import statistics
 
 import matplotlib
@@ -55,21 +56,26 @@ def extraction(res):
 
 
 def threshold_sweep(res, production, best):
-    fig, ax = plt.subplots(figsize=(COL_W, 2.0))
+    fig, ax = plt.subplots(figsize=(COL_W, 2.1))
+    old = f"{_short(production['model'])}, {production['algorithm']}"
     for run, style, tag in [(production, "-", "production"), (best, "--", "best")]:
         ts = [r["threshold"] for r in run["sweep"]]
         if tag == "production":
-            ax.plot(ts, [r["pairwise"]["precision"] for r in run["sweep"]], style, color=C["p"], label="Precision")
-            ax.plot(ts, [r["pairwise"]["recall"] for r in run["sweep"]], style, color=C["r"], label="Recall")
+            ax.plot(ts, [r["pairwise"]["precision"] for r in run["sweep"]], style, color=C["p"], label=f"Precision ({old})")
+            ax.plot(ts, [r["pairwise"]["recall"] for r in run["sweep"]], style, color=C["r"], label=f"Recall ({old})")
         ax.plot(ts, [r["pairwise"]["f1"] for r in run["sweep"]], style, color=C["f"],
-                label=f"F1 — {run['model']} ({run['algorithm']}, {run['variant']})" if tag == "best" else "F1")
+                label=f"F1 ({_short(run['model'])}, {run['algorithm']})" if tag == "best" else f"F1 ({old})")
     ax.axvline(0.70, color="#555", lw=0.6, ls=":")
-    ax.text(0.705, 0.03, "τ = 0.70 (deployed)", fontsize=6, color="#555")
+    ax.text(0.695, 0.04, "original τ = 0.70", fontsize=6, color="#555", ha="right")
     ax.set_xlabel("Cosine similarity threshold τ")
     ax.set_ylabel("Pairwise score")
     ax.set_ylim(0, 1.02)
-    ax.legend(frameon=False, loc="lower left", fontsize=6)
+    ax.legend(frameon=False, loc="lower left", bbox_to_anchor=(0, 1.0), ncol=2, fontsize=6, columnspacing=1.0)
     _save(fig, "fig_threshold")
+
+
+def _short(model):
+    return re.sub(r"-v\d$", "", model).replace("-L6", "")
 
 
 def models(res):
@@ -85,17 +91,18 @@ def models(res):
     ax.barh([y - 0.2 for y in ys], [r["loso"]["f1"] for r in rows], 0.38, color=C["ours"], label="F1, τ chosen on other subjects")
     for y, r in zip(ys, rows):
         ax.text(max(r["best"]["f1"], r["loso"]["f1"]) + 0.01, y, f"{r['size_mb']:.0f} MB", va="center", fontsize=6)
-    ax.set_yticks(list(ys), [r["model"] for r in rows])
-    ax.set_xlim(0, 1.08)
+    ax.set_yticks(list(ys), [_short(r["model"]) for r in rows])
+    ax.set_xlim(0, 0.9)
     ax.set_xlabel("Pairwise F1 (grouping same-meaning questions)")
-    ax.legend(frameon=False, loc="lower right", fontsize=6)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[::-1], labels[::-1], frameon=False, loc="lower left", bbox_to_anchor=(0, 1.0), ncol=2, fontsize=6)
     _save(fig, "fig_models")
 
 
 def backtest(res):
     ks = res["ks"]
     methods = ["oracle", "ours", "system_end_to_end", "frequency", "recency", "marks", "random"]
-    fig, ax = plt.subplots(figsize=(COL_W, 2.3))
+    fig, ax = plt.subplots(figsize=(COL_W, 2.2))
     cases = res["cases"]
     for m in methods:
         if not all(m in c["curves"] for c in cases):
@@ -108,9 +115,8 @@ def backtest(res):
     ax.text(ks[-1], ceiling + 1.5, "study every topic seen before", ha="right", fontsize=6, color="#555")
     ax.set_xlabel("Topics studied per module (k)")
     ax.set_ylabel("Marks secured in the next exam (/100)")
-    ax.set_ylim(0, 105)
-    ax.set_title(f"Mean over {len(cases)} held-out exams")
-    ax.legend(frameon=False, loc="lower right", fontsize=6)
+    ax.set_ylim(0, 100)
+    ax.legend(frameon=False, loc="upper left", bbox_to_anchor=(0, -0.22), ncol=2, fontsize=6, columnspacing=1.0)
     _save(fig, "fig_backtest")
 
 
@@ -119,18 +125,22 @@ def backtest_cases(res):
     n = len(cases)
     cols = min(n, 3)
     rows = (n + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(2 * COL_W, 1.7 * rows), squeeze=False, sharey=True)
+    fig, axes = plt.subplots(rows, cols, figsize=(2 * COL_W, 1.6 * rows + 0.4), squeeze=False, sharey=True, sharex=True)
     for ax, c in zip(axes.flat, cases):
         for m in ["oracle", "ours", "system_end_to_end", "frequency", "random"]:
             if m in c["curves"]:
                 ax.plot(ks, c["curves"][m], "-" if m not in ("oracle", "random") else ":", color=C[m], label=NAMES[m])
         ax.axhline(c["ceiling_all_seen"], color="#555", lw=0.6, ls="--")
-        ax.set_title(f"{c['subject']} — {c['test_session']} (trained on {len(c['train'])})")
-        ax.set_xlabel("k per module")
+        ax.set_title(f"{c['subject']} {c['test_session']}, {len(c['train'])} earlier paper{'s' * (len(c['train']) > 1)}")
     for ax in axes.flat[n:]:
         ax.axis("off")
-    axes[0][0].set_ylabel("Marks (/100)")
-    axes.flat[0].legend(frameon=False, fontsize=5.5, loc="lower right")
+    for ax in axes[-1]:
+        ax.set_xlabel("Topics studied per module (k)")
+    for row in axes:
+        row[0].set_ylabel("Marks (/100)")
+    handles, labels = axes.flat[0].get_legend_handles_labels()
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
+    fig.legend(handles, labels, frameon=False, fontsize=6.5, loc="lower center", ncol=len(labels))
     _save(fig, "fig_backtest_cases")
 
 
@@ -149,7 +159,8 @@ def perf(res):
     if onnx and torch and "error" not in torch:
         ax.bar([0, 1], [onnx["model_rss_mb"], torch["model_rss_mb"]], color=[C["ours"], "#999"])
         ax.set_xticks([0, 1], ["ONNX", "PyTorch"])
-        ax.set_ylabel("Model memory (MB)")
+        ax.set_ylabel("Runtime + model memory (MB)")
+        ax.set_ylim(0, 1.3 * max(onnx["model_rss_mb"], torch["model_rss_mb"]))
         for x, v, ms in [(0, onnx["model_rss_mb"], onnx["ms_per_text"]), (1, torch["model_rss_mb"], torch["ms_per_text"])]:
             ax.text(x, v, f"{v:.0f} MB\n{ms:.1f} ms/q", ha="center", va="bottom", fontsize=6)
     fig.tight_layout()

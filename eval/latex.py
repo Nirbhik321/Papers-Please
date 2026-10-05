@@ -59,8 +59,8 @@ def build(res: dict) -> None:
         multi = sum(1 for g in groups.get(s, {}).get("groups", []) if len(g["members"]) > 1)
         rows.append(f"{s} & {name} & {len(ps)} ({scans}) & {nq} & {ng} ({multi}) \\\\")
     (OUT / "tab_dataset.tex").write_text(
-        "\\begin{tabular}{@{}llccc@{}}\n\\toprule\n\\textbf{Code} & \\textbf{Subject} & \\textbf{Papers (scanned)} & "
-        "\\textbf{Sub-q.} & \\textbf{Groups (multi)} \\\\\n\\midrule\n" + "\n".join(rows) +
+        "\\begin{tabular}{@{}l>{\\raggedright\\arraybackslash}p{3.1cm}ccc@{}}\n\\toprule\n\\textbf{Code} & \\textbf{Subject} & "
+        "\\textbf{Papers} & \\textbf{Sub-q.} & \\textbf{Groups} \\\\\n\\midrule\n" + "\n".join(rows) +
         f"\n\\midrule\n\\textbf{{Total}} & & {m['NumPapers']} ({m['NumScanned']}) & {m['NumQuestions']} & {m['NumGroups']} \\\\\n"
         "\\bottomrule\n\\end{tabular}\n", encoding="utf-8")
 
@@ -126,6 +126,13 @@ def build(res: dict) -> None:
         mp = next(r for r in runs if r["model"] == "all-mpnet-base-v2" and r["algorithm"] == "average" and r["variant"] == "raw")
         m["MpnetLoso"] = _f(mp["loso"]["f1"])
         m["MpnetMB"] = f"{mp['size_mb']:.0f}"
+        m["NewMB"] = f"{new['size_mb']:.0f}"
+        avg_wins = sum(1 for r in runs if r["algorithm"] == "average" and r["variant"] == "raw" and r["loso"]["f1"] >
+                       next(x for x in runs if x["model"] == r["model"] and x["algorithm"] == "greedy" and x["variant"] == "raw")["loso"]["f1"] + 0.005)
+        m["AvgWins"] = avg_wins
+        m["NumModels"] = len(best_per_model)
+        top = sorted(best_per_model.values(), key=lambda r: -r["loso"]["f1"])
+        m["TopThreeSpread"] = _f(top[0]["loso"]["f1"] - top[2]["loso"]["f1"])
     if "grouping_hybrid" in res:
         for r in res["grouping_hybrid"]["runs"]:
             tag = "New" if r["model"] == "mxbai-embed-xsmall-v1" else "Old"
@@ -172,6 +179,7 @@ def build(res: dict) -> None:
         if on:
             m["OnnxMB"] = f"{on['model_rss_mb']:.0f}"
             m["OnnxMs"] = f"{on['ms_per_text']:.1f}"
+            m["OnnxLoad"] = f"{on['import_and_load_s']:.1f}"
         if to and "error" not in to:
             m["TorchMB"] = f"{to['model_rss_mb']:.0f}"
             m["TorchMs"] = f"{to['ms_per_text']:.1f}"

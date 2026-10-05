@@ -487,14 +487,12 @@ def perf(system: dict[str, dict]) -> dict:
     import json
     import os
     import subprocess
+    import sys
     from pathlib import Path
-
-    import psutil
 
     from eval.common import RAW, ROOT, paper_index
     from modules import detector, parser
 
-    proc = psutil.Process(os.getpid())
     out = {"extraction": []}
     for p in paper_index():
         t0 = time.perf_counter()
@@ -508,29 +506,23 @@ def perf(system: dict[str, dict]) -> dict:
 
     texts = [q["text"] for s in system.values() for q in s["sub_questions"]]
     texts = (texts * 3)[:300]
-    rss0 = proc.memory_info().rss
-    enc = embedders.OnnxEncoder(embedders.DEPLOYED)
-    rss1 = proc.memory_info().rss
-    enc.encode(texts[:8])
-    enc._cache.clear()
-    t0 = time.perf_counter()
-    enc.encode(texts)
-    onnx_s = time.perf_counter() - t0
-    out["embedding_onnx"] = {"texts": len(texts), "seconds": onnx_s, "ms_per_text": 1000 * onnx_s / len(texts),
-                             "model_rss_mb": (rss1 - rss0) / 1e6, "model_file_mb": enc.size_mb,
-                             "process_rss_mb": proc.memory_info().rss / 1e6}
+    tmp = ROOT / "data" / "eval" / "bench_texts.json"
+    tmp.write_text(json.dumps(texts), encoding="utf-8")
 
+    def bench(cmd: list[str]) -> dict:
+        # A fresh interpreter per runtime, so memory covers only that runtime and model
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=900, cwd=ROOT,
+                           env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+        try:
+            return json.loads(r.stdout.strip().splitlines()[-1])
+        except Exception:
+            return {"error": (r.stderr or r.stdout)[-400:]}
+
+    out["embedding_onnx"] = bench([sys.executable, "-m", "eval.bench_onnx", str(tmp), embedders.DEPLOYED])
     torch_py = Path(os.environ.get("TORCH_PYTHON", r"C:\Users\Prabhat\miniconda3\python.exe"))
     if torch_py.exists():
-        script = ROOT / "eval" / "bench_torch.py"
-        tmp = ROOT / "data" / "eval" / "bench_texts.json"
-        tmp.write_text(json.dumps(texts), encoding="utf-8")
-        r = subprocess.run([str(torch_py), str(script), str(tmp), embedders.MODELS[embedders.DEPLOYED][0]],
-                           capture_output=True, text=True, timeout=900)
-        try:
-            out["embedding_torch"] = json.loads(r.stdout.strip().splitlines()[-1])
-        except Exception:
-            out["embedding_torch"] = {"error": (r.stderr or r.stdout)[-400:]}
+        out["embedding_torch"] = bench([str(torch_py), str(ROOT / "eval" / "bench_torch.py"), str(tmp),
+                                        embedders.MODELS[embedders.DEPLOYED][0]])
     return out
 
 
