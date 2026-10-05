@@ -9,14 +9,17 @@ Key rule: position (q_no, sub_q) is IRRELEVANT for identity.
   Paper B: Module 2, Q.4b → "Define CRC. Explain CRC encoder operation"
   → Same canonical question (similarity > threshold)
 
-Algorithm: centroid-based greedy clustering.
-  Each new question is compared to the CENTROID (mean embedding) of each
-  existing cluster, not just the first member.  This correctly merges
-  paraphrases even when the seed and candidate are not directly close.
+Algorithm: average-linkage agglomerative clustering (default).
+  Start with every question on its own and repeatedly merge the two groups
+  whose questions are, on average, most similar — until no pair of groups
+  averages above the threshold. Unlike a single seed or centroid, the decision
+  uses every pairwise similarity, so one odd phrasing can't drag a group off.
+  The older centroid-based greedy clustering is kept as method="greedy".
 
-Threshold: 0.70 — tuned for academic paraphrase similarity on MiniLM-L6.
-  0.80+ is too strict (misses "explain X" vs "describe X with diagram")
-  0.60- is too loose (may merge different topics in the same module)
+Model + threshold were chosen on hand-labelled VTU papers (eval/, 261 questions,
+170 gold groups), picking τ on two subjects and scoring on the third:
+  mxbai-embed-xsmall-v1 + average linkage, τ = 0.725  →  pairwise F1 0.712
+  paraphrase-MiniLM-L6-v2 + greedy, τ = 0.70 (previous) →  pairwise F1 0.625
 """
 
 import re
@@ -24,7 +27,7 @@ import numpy as np
 from modules import embedder
 
 
-SIMILARITY_THRESHOLD = 0.70   # lower than before — catches real paraphrases
+SIMILARITY_THRESHOLD = 0.725  # chosen by leave-one-subject-out evaluation (see docstring)
 MIN_TEXT_LENGTH = 12           # ignore garbage OCR fragments
 
 
@@ -67,51 +70,8 @@ def _clean_for_embed(text: str) -> str:
     return text.strip()
 
 
-# ── Main deduplication ─────────────────────────────────────────────────────────
-
-def deduplicate(
-    sub_questions: list[dict],
-    threshold: float = SIMILARITY_THRESHOLD,
-    encode=None,
-) -> list[dict]:
-    """
-    Group sub_questions into canonical question clusters.
-
-    Args:
-        sub_questions: list of sub_question dicts from db.get_sub_questions_for_module()
-                       Each dict must have: id, text, marks, year, paper_id, q_no, sub_q
-        threshold: cosine similarity above which two questions are "the same"
-        encode: texts -> L2-normalised embeddings; defaults to embedder.encode
-                (the evaluation swaps in other models here)
-
-    Returns:
-        List of canonical dicts:
-          {
-            representative_text,  # most recent / longest clean phrasing
-            avg_marks,
-            appearances: [{sub_question_id, paper_id, year, q_no, sub_q, marks}]
-          }
-    """
-    valid = [
-        q for q in sub_questions
-        if len(q["text"].strip()) >= MIN_TEXT_LENGTH
-    ]
-    if not valid:
-        return []
-
-    # Clean texts for embedding — keep originals for storage
-    clean_texts = [_clean_for_embed(q["text"]) for q in valid]
-
-    # Drop entries that became empty after cleaning
-    pairs = [(q, ct) for q, ct in zip(valid, clean_texts) if len(ct) >= MIN_TEXT_LENGTH]
-    if not pairs:
-        return []
-    valid, clean_texts = zip(*pairs)
-    valid = list(valid)
-    clean_texts = list(clean_texts)
-
-    embeddings = (encode or embedder.encode)(clean_texts)   # shape (N, D), L2-normalised
-
+def _greedy_clusters(embeddings: np.ndarray, threshold: float) -> list[list[int]]:
+    """Original algorithm: greedy assignment to the nearest centroid, then one refinement pass."""
     # ── Centroid-based greedy clustering  (pass 1) ────────────────────────────
     # For each new question, compare against the centroid of every existing
     # cluster.  Assign to the most similar cluster if sim >= threshold,
@@ -182,6 +142,96 @@ def deduplicate(
 
     # Drop empty clusters that lost all their members to better fits
     cluster_members = [m for m in new_members if m]
+    return cluster_members
+
+
+def average_linkage(sim: np.ndarray, threshold: float) -> list[list[int]]:
+    """
+    Average-linkage agglomerative clustering on a cosine-similarity matrix.
+
+    Repeatedly merges the two clusters with the highest mean pairwise similarity
+    while that mean is above `threshold` (equivalent to scikit-learn's
+    AgglomerativeClustering(metric="cosine", linkage="average",
+    distance_threshold=1 - threshold)). Lance–Williams updates keep each merge O(k).
+    """
+    n = len(sim)
+    if n == 0:
+        return []
+    clusters = [[i] for i in range(n)]
+    sizes = np.ones(n)
+    M = sim.astype(np.float64).copy()
+    np.fill_diagonal(M, -np.inf)
+    alive = np.ones(n, dtype=bool)
+    while alive.sum() > 1:
+        masked = np.where(alive[:, None] & alive[None, :], M, -np.inf)
+        a, b = np.unravel_index(np.argmax(masked), masked.shape)
+        if masked[a, b] <= threshold:
+            break
+        a, b = min(a, b), max(a, b)
+        merged = (sizes[a] * M[a] + sizes[b] * M[b]) / (sizes[a] + sizes[b])
+        M[a, :] = merged
+        M[:, a] = merged
+        M[a, a] = -np.inf
+        sizes[a] += sizes[b]
+        clusters[a] += clusters[b]
+        alive[b] = False
+        M[b, :] = -np.inf
+        M[:, b] = -np.inf
+    return [sorted(clusters[i]) for i in range(n) if alive[i]]
+
+
+# ── Main deduplication ─────────────────────────────────────────────────────────
+
+def deduplicate(
+    sub_questions: list[dict],
+    threshold: float = SIMILARITY_THRESHOLD,
+    encode=None,
+    method: str = "average",
+) -> list[dict]:
+    """
+    Group sub_questions into canonical question clusters.
+
+    Args:
+        sub_questions: list of sub_question dicts from db.get_sub_questions_for_module()
+                       Each dict must have: id, text, marks, year, paper_id, q_no, sub_q
+        threshold: cosine similarity above which two questions are "the same"
+        encode: texts -> L2-normalised embeddings; defaults to embedder.encode
+                (the evaluation swaps in other models here)
+        method: "average" (average-linkage agglomerative, default) or "greedy"
+                (the original two-pass centroid clustering)
+
+    Returns:
+        List of canonical dicts:
+          {
+            representative_text,  # most recent / longest clean phrasing
+            avg_marks,
+            appearances: [{sub_question_id, paper_id, year, q_no, sub_q, marks}]
+          }
+    """
+    valid = [
+        q for q in sub_questions
+        if len(q["text"].strip()) >= MIN_TEXT_LENGTH
+    ]
+    if not valid:
+        return []
+
+    # Clean texts for embedding — keep originals for storage
+    clean_texts = [_clean_for_embed(q["text"]) for q in valid]
+
+    # Drop entries that became empty after cleaning
+    pairs = [(q, ct) for q, ct in zip(valid, clean_texts) if len(ct) >= MIN_TEXT_LENGTH]
+    if not pairs:
+        return []
+    valid, clean_texts = zip(*pairs)
+    valid = list(valid)
+    clean_texts = list(clean_texts)
+
+    embeddings = (encode or embedder.encode)(clean_texts)   # shape (N, D), L2-normalised
+
+    if method == "greedy":
+        cluster_members = _greedy_clusters(embeddings, threshold)
+    else:
+        cluster_members = average_linkage(embeddings @ embeddings.T, threshold)
 
     # ── Build canonical records ────────────────────────────────────────────────
     canonicals: list[dict] = []

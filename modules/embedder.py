@@ -1,13 +1,13 @@
 """
 embedder.py — Sentence-BERT encoding for semantic similarity.
 
-Uses paraphrase-MiniLM-L6-v2, run through ONNX Runtime instead of PyTorch.
-Same weights and same outputs as the sentence-transformers version, but the
-install is ~100 MB instead of ~2 GB and it fits in a 512 MB server.
+Uses mixedbread-ai/mxbai-embed-xsmall-v1 (384-d, ~96 MB), run through ONNX
+Runtime instead of PyTorch, so the install is ~100 MB instead of ~2 GB and it
+fits in a 512 MB server.
 
-This model is explicitly trained on paraphrase pairs, making it far better
-than all-MiniLM-L6-v2 at detecting "Explain X" ≈ "Describe the working of X"
-which is the dominant pattern in exam question deduplication.
+Chosen by evaluation on hand-labelled VTU papers (eval/): out of 9 small
+embedding models it grouped same-meaning exam questions best (with average-
+linkage clustering), ahead of the previous paraphrase-MiniLM-L6-v2.
 
 The model files are downloaded from the Hugging Face hub on first use (or
 baked into the Docker image at build time) and cached for the process lifetime.
@@ -15,7 +15,7 @@ baked into the Docker image at build time) and cached for the process lifetime.
 
 import numpy as np
 
-_REPO = "sentence-transformers/paraphrase-MiniLM-L6-v2"
+_REPO = "mixedbread-ai/mxbai-embed-xsmall-v1"
 _MAX_TOKENS = 128   # model's max_seq_length (sentence_bert_config.json)
 _DIM = 384
 
@@ -30,7 +30,7 @@ def _load():
         from huggingface_hub import hf_hub_download
         from tokenizers import Tokenizer
 
-        print(f"  Loading Sentence-BERT ({_REPO}, ONNX)...")
+        print(f"  Loading embedding model ({_REPO}, ONNX)...")
         model_path = hf_hub_download(_REPO, "onnx/model.onnx")
         tok_path = hf_hub_download(_REPO, "tokenizer.json")
 
