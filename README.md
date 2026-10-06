@@ -145,55 +145,19 @@ The subject's ranking, cheat-sheet PDF and CSV are stored as one precomputed sna
 
 ## Algorithms and Research
 
-### Sentence-BERT Semantic Embeddings
+### Sentence Embeddings
 
-**Model:** `paraphrase-MiniLM-L6-v2` from the `sentence-transformers` library.
+**Model:** `all-MiniLM-L12-v2` (sentence-transformers), run through ONNX Runtime.
 
-- **Size:** ~90 MB, runs on CPU (no GPU required)
-- **Output:** 384-dimensional dense vector per question
-- **Why this model:** It is trained specifically on **paraphrase pairs** — meaning "Explain X" and "Describe the working of X with a diagram" map to nearby points in 384-D space
+- **Size:** ~133 MB, runs on CPU (no GPU required); fits the 512 MB server
+- **Output:** 384-dimensional vector per question, L2-normalised so cosine similarity is a dot product
+- **How it was chosen:** `eval/` compares 20 embedding models and two TF-IDF baselines on hand-labelled groups of same-meaning questions from four subjects, choosing the threshold on three subjects and scoring the fourth. All-MiniLM-L12 was the best of the models that fit the server and picked the same threshold in every fold. Models up to 1.3 GB did no better. See `eval/results/RESULTS.md`.
 
-Why not `all-MiniLM-L6-v2` (the common default)? That model is trained on diverse web data for general similarity. Our problem is specifically about detecting **academic paraphrases** — same concept, different wording. The paraphrase-tuned variant handles this pattern significantly better.
+### Average-Linkage Clustering (Deduplication)
 
-All embeddings are **L2-normalised**, so cosine similarity reduces to a dot product — making similarity computation very efficient.
+Within each subject and module, every question starts on its own; the two groups whose questions are on average most similar are merged, again and again, while that average similarity is above **0.675**. The decision uses every pairwise similarity, so one odd phrasing can't drag a group off course. The original two-pass centroid method is still available as `method="greedy"` for comparison.
 
-### Centroid-Based Greedy Clustering with Refinement Pass (Deduplication)
-
-This is the core algorithm. It groups semantically similar questions into "canonical" question clusters using a **two-pass approach** for order-independent stability:
-
-**Pass 1 — Greedy seeding:**
-```
-For each new question embedding:
-    Compare against the centroid (mean) of every existing cluster
-    If best similarity >= 0.70:
-        Join that cluster, update its centroid incrementally
-    Else:
-        Start a new cluster with this question as seed
-```
-
-**Pass 2 — Refinement:**
-```
-Recompute all centroids from scratch (removes incremental-mean drift)
-For each question:
-    Reassign it to the nearest centroid via matrix multiply (N x K dot product)
-    If best similarity < 0.70: keep as singleton
-Drop any clusters that became empty
-```
-
-The second pass corrects cases where the greedy insertion order caused a question to land in a slightly suboptimal cluster. It also eliminates numerical drift from the incremental centroid updates.
-
-**Why centroid-based?** Two questions A and B might not be directly similar to each other, but both might cluster around a centroid C. Comparing against centroids catches these transitive similarities.
-
-**Why not k-means or DBSCAN?**
-- k-means requires knowing the number of clusters upfront — we don't
-- DBSCAN requires density parameters that don't generalise across modules
-- Greedy clustering is O(N * C) where C << N, single-pass, and needs no hyperparameter tuning beyond the threshold
-
-**Threshold = 0.70** was tuned on real VTU papers:
-- 0.80+ is too strict — misses clear paraphrases like "explain X" vs "describe X with diagram"
-- 0.60- is too loose — merges different topics within the same module
-
-The centroid is updated using **Welford's incremental mean algorithm**, then re-normalised to unit length.
+**Why not k-means or DBSCAN?** The number of topics per module is unknown (rules out k-means) and module sizes vary too much for fixed DBSCAN parameters. Agglomerative clustering needs one threshold, and the evaluation picks it.
 
 ### Recency-Decay Scoring
 
@@ -362,9 +326,9 @@ Our initial approach used gap-based auto-detection to find column boundaries. It
 
 ### 3. "Explain X" vs "Describe X with a diagram" — are they the same?
 
-The default similarity models (`all-MiniLM-L6-v2`) gave these a similarity of ~0.72 — below the typical 0.80 threshold. But for exam prep, these are clearly the same topic.
+Guessing a model and a threshold by eye didn't hold up: the first choice (`paraphrase-MiniLM-L6-v2`, 0.70) was beaten once we labelled real papers.
 
-**Solution:** Switched to `paraphrase-MiniLM-L6-v2` (trained on paraphrase pairs) and lowered the threshold to 0.70. The paraphrase model gives these ~0.82 similarity, and the lower threshold catches the remaining edge cases.
+**Solution:** A labelled benchmark and a proper comparison (`python -m eval.run_all`): 20 models, two clustering methods, thresholds chosen on other subjects, bootstrap confidence intervals. The current choice is `all-MiniLM-L12-v2` with average linkage at 0.675.
 
 ### 4. Ollama not always available
 

@@ -134,7 +134,7 @@ appearances links each canonical question back to the specific sub-questions acr
 
 **Tesseract OCR** is the standard open-source OCR engine. The preprocessing added before Tesseract (autocontrast, sharpen, median filter) was built using Pillow which is already a dependency, so no new package was needed.
 
-**Sentence-BERT** (paraphrase-MiniLM-L6-v2) produces 384-dimensional semantic embeddings that capture meaning well for short question texts. It runs fully locally, no API key needed, and the model is small enough to load in a few seconds on a laptop.
+**Sentence embeddings** (all-MiniLM-L12-v2, chosen by the evaluation in eval/) produce 384-dimensional vectors that capture meaning well for short question texts. It runs fully locally, no API key needed, and the model is small enough to load in a few seconds on a laptop.
 
 **SQLite** was chosen over a full database server because the tool is local, the data volumes are modest, and zero setup means anyone can run it by just installing Python dependencies.
 

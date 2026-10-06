@@ -13,7 +13,7 @@ const STEPS = [
   },
   {
     title: "Group reworded questions",
-    body: "“Explain CRC” and “Describe the CRC encoder with a neat diagram” are the same question. A sentence-embedding model trained on paraphrases compares every question in a module, across all papers, and groups the ones that mean the same thing. Where a question sat in the paper (Q3a or Q4b) doesn't matter.",
+    body: "“Explain CRC” and “Describe the CRC encoder with a neat diagram” are the same question. A compact sentence-embedding model, chosen by testing 20 of them on labelled VTU papers, compares every question in a module, across all papers, and groups the ones that mean the same thing. Where a question sat in the paper (Q3a or Q4b) doesn't matter.",
   },
   {
     title: "Rank by repetition, weighted to recent papers",

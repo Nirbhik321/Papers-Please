@@ -265,17 +265,15 @@ Given a PDF path, decides how to read it and returns table rows (`list[list[str]
 Turns rows into sub-questions: module headers (strict + fuzzy regex for garbled OCR), OR rows skipped, continuation lines joined, garbled question numbers ("O22" → 2), marks/Bloom/CO scanned from all right-hand cells, whitespace folded.
 
 ### embedder.py
-`paraphrase-MiniLM-L6-v2` run with **ONNX Runtime** + the `tokenizers` library: tokenise (max 128 tokens) → model → mean pooling over the attention mask → L2 normalise, so cosine similarity is a dot product. Output matches the sentence-transformers/PyTorch version to within 1e-7, with a ~100 MB install instead of ~2 GB. The model files are baked into the Docker image.
+`all-MiniLM-L12-v2` run with **ONNX Runtime** + the `tokenizers` library: tokenise (max 128 tokens) → model → mean pooling over the attention mask → L2 normalise, so cosine similarity is a dot product. Output matches the sentence-transformers/PyTorch version to within 1e-7, with a ~100 MB install instead of ~2 GB. The model files are baked into the Docker image.
 
 ### deduplicator.py
-Two-pass centroid clustering at cosine ≥ 0.70 over one subject+module across all papers:
-1. **Greedy pass:** each question joins the most similar cluster centroid (incremental mean, re-normalised) or starts a new cluster.
-2. **Refinement pass:** centroids recomputed from scratch; every question reassigned to its nearest centroid in one matrix multiply (below threshold → singleton). This removes the greedy pass's order-dependence.
+Average-linkage agglomerative clustering at cosine > 0.675 over one subject+module across all papers: start from singletons and keep merging the two groups with the highest mean pairwise similarity while it is above the threshold (Lance–Williams updates, identical to scikit-learn's). The original two-pass centroid clustering is kept as `method="greedy"`. Model and threshold were chosen by the evaluation in `eval/`.
 
 The representative wording is the most recent, longest one. OCR noise (leading labels, pipes, run-together prefixes) is stripped before embedding.
 
 ### scorer.py
-`weighted_score = Σ 0.85^(this_year − paper_year)` over the distinct papers a topic appeared in; `expected_marks = (papers it appeared in / total papers) × average marks`. The marks ladder accumulates expected marks down the ranking until the module's 20 marks are covered.
+`weighted_score = Σ 0.85^(this_year − paper_year)` over the distinct papers a topic appeared in (undated model papers count as a year older than the subject's first exam; ties go to the more frequent, then higher-marks topic); `expected_marks = (papers it appeared in / total papers) × average marks`. The marks ladder accumulates expected marks down the ranking until the module's 20 marks are covered.
 
 ### tagger.py
 Short topic labels. Uses a local Ollama model if one is running; otherwise (always, on the free server) pulls the subject of the question out of its best wording: prefers well-formed questions over OCR fragments, strips instruction words ("Explain the…", "What is…", "with a neat diagram"), list markers and filler, and keeps up to six words in title case (acronyms like TCP/IP untouched).
@@ -333,11 +331,11 @@ Memory. One PDF read and one subject rebuild at a time keeps peak usage flat. Jo
 ### Why hardcoded column proportions for OCR?
 VTU CBCS papers have a consistent layout. Auto-detecting columns from word gaps failed on pages with headers and footers; fixed proportional splits calibrated on real papers are more reliable for this domain.
 
-### Why paraphrase-MiniLM over all-MiniLM?
-Exam questions are paraphrases of the same concept; the paraphrase-trained model scores "Explain CRC" vs "Describe the CRC encoder with a diagram" much higher.
+### Why all-MiniLM-L12?
+It grouped same-meaning questions best among the 20 models we compared that fit a 512 MB server (`eval/results/RESULTS.md`); larger models were no better on these short questions.
 
-### Why greedy clustering over k-means or DBSCAN?
-The number of topics per module is unknown (rules out k-means) and module sizes vary too much for fixed DBSCAN parameters. Greedy centroid clustering needs one threshold; the refinement pass fixes its order-dependence.
+### Why agglomerative clustering over k-means or DBSCAN?
+The number of topics per module is unknown (rules out k-means) and module sizes vary too much for fixed DBSCAN parameters. Average linkage needs one threshold and, unlike a running centroid, does not depend on the order questions arrive in.
 
 ### Why recency decay?
 Syllabi drift. A topic asked in each of the last three sessions is a stronger signal than one asked three times years ago.
