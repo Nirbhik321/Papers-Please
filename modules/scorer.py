@@ -4,12 +4,13 @@ scorer.py — Frequency × recency × marks scoring for canonical questions.
 Scoring formula:
   weighted_score = sum over unique papers of (DECAY ^ (current_year - paper_year))
 
-  Where DECAY = 0.85, meaning:
+  Where DECAY = 0.85, meaning (in 2025):
     2025 paper → weight 1.00
     2024 paper → weight 0.85
     2023 paper → weight 0.72
     2022 paper → weight 0.61
     2021 paper → weight 0.52
+  Undated model papers count as a year older than the subject's earliest exam.
 
   frequency = count of DISTINCT papers the question appeared in
   expected_marks = (frequency / total_papers) × avg_marks
@@ -66,6 +67,11 @@ def score_canonicals(
     """
     if current_year is None:
         current_year = date.today().year
+    # Model question papers carry no exam date. They are published with the scheme, before
+    # its first exam, so date them a year before the earliest real exam rather than treating
+    # them as the newest papers (which would rank them above last year's exam).
+    dated = [a["year"] for c in canonicals for a in c.get("appearances", []) if a.get("year")]
+    undated_year = min(dated) - 1 if dated else current_year
 
     scored = []
     for c in canonicals:
@@ -87,7 +93,7 @@ def score_canonicals(
         last_seen_year = years[0] if years else None
 
         weighted_score = sum(
-            RECENCY_DECAY ** max(0, current_year - (a.get("year") or current_year))
+            RECENCY_DECAY ** max(0, current_year - (a.get("year") or undated_year))
             for a in unique_appearances
         )
 
@@ -104,7 +110,9 @@ def score_canonicals(
             "last_seen_year": last_seen_year,
         })
 
-    scored.sort(key=lambda x: x["weighted_score"], reverse=True)
+    # Ties (common when most topics have appeared once) go to the topic seen in more papers,
+    # then to the one worth more marks, so the order never depends on clustering order
+    scored.sort(key=lambda x: (x["weighted_score"], x["frequency"], x.get("avg_marks") or 0), reverse=True)
     return scored
 
 
