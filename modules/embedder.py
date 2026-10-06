@@ -1,13 +1,14 @@
 """
 embedder.py — Sentence-BERT encoding for semantic similarity.
 
-Uses mixedbread-ai/mxbai-embed-xsmall-v1 (384-d, ~96 MB), run through ONNX
-Runtime instead of PyTorch, so the install is ~100 MB instead of ~2 GB and it
-fits in a 512 MB server.
+Uses thenlper/gte-small (384-d, ~133 MB), run through ONNX Runtime instead of
+PyTorch, so the install is ~100 MB instead of ~2 GB and it fits in a 512 MB server.
 
-Chosen by evaluation on hand-labelled VTU papers (eval/): out of 9 small
-embedding models it grouped same-meaning exam questions best (with average-
-linkage clustering), ahead of the previous paraphrase-MiniLM-L6-v2.
+Chosen by evaluation on hand-labelled VTU papers (eval/): of the 9 small embedding
+models compared, it grouped same-meaning exam questions best among those that fit
+the server (with average-linkage clustering), choosing the same threshold whichever
+subject was held out. mxbai-embed-xsmall-v1 looked best on the first three subjects
+but did not hold up once a fourth subject was added.
 
 The model files are downloaded from the Hugging Face hub on first use (or
 baked into the Docker image at build time) and cached for the process lifetime.
@@ -15,8 +16,8 @@ baked into the Docker image at build time) and cached for the process lifetime.
 
 import numpy as np
 
-_REPO = "mixedbread-ai/mxbai-embed-xsmall-v1"
-_MAX_TOKENS = 128   # model's max_seq_length (sentence_bert_config.json)
+_REPO = "thenlper/gte-small"
+_MAX_TOKENS = 128   # exam questions are short; the evaluation used the same limit
 _DIM = 384
 
 _session = None
