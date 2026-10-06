@@ -12,13 +12,22 @@ paper comes from the evaluation and updates when papers are added:
 import statistics
 from collections import Counter
 
-from eval.common import ROOT, load_gt_groups, load_gt_papers, session_label
+from eval import embedders
+from eval.common import HELD_OUT_SUBJECTS, ROOT, load_gt_groups, load_gt_papers, session_label
+from modules.deduplicator import SIMILARITY_THRESHOLD
 
 OUT = ROOT / "reports" / "generated"
-DISPLAY = {"paraphrase-MiniLM-L6-v2": "paraphrase-MiniLM-L6", "all-MiniLM-L6-v2": "all-MiniLM-L6",
-           "paraphrase-mpnet-base-v2": "paraphrase-mpnet-base", "all-mpnet-base-v2": "all-mpnet-base",
-           "bge-small-en-v1.5": "bge-small-en-v1.5", "gte-small": "gte-small", "e5-small-v2": "e5-small-v2",
-           "arctic-embed-xs": "arctic-embed-xs", "mxbai-embed-xsmall-v1": "mxbai-embed-xsmall"}
+class _Display(dict):
+    """Short model names for tables: drop version suffixes, keep the rest."""
+    _OVERRIDE = {"tfidf-word": "TF-IDF (words)", "tfidf-char": "TF-IDF (char n-grams)",
+                 "nomic-embed-text-v1.5": "nomic-embed-v1.5", "multi-qa-MiniLM-L6": "multi-qa-MiniLM-L6"}
+
+    def __missing__(self, key):
+        import re
+        return self._OVERRIDE.get(key) or re.sub(r"-v\d$", "", key).replace("-en-v1.5", "-en")
+
+
+DISPLAY = _Display()
 METHOD = {"ours": "Ours (freq.\\ $\\times$ recency)", "system_end_to_end": "Ours, end-to-end",
           "frequency": "Frequency only", "recency": "Most recent first", "marks": "Highest marks first",
           "random": "Random order", "oracle": "Hindsight oracle"}
@@ -68,16 +77,30 @@ def build(res: dict) -> None:
     if "extraction" in res:
         s = res["extraction"]["summary"]
         lines = []
-        for key, label in (("native", "Native text"), ("scanned", "Scanned (OCR)"), ("all", "\\textbf{All}")):
+        for key, label in (("native", "Native text"), ("scanned", "Scanned (OCR)"), ("all", "\\textbf{All}"),
+                           ("heldout", "Unseen (added later)")):
             if key not in s:
                 continue
             r = s[key]
+            if key == "heldout":
+                lines.append("\\midrule")
             lines.append(f"{label} & {r['papers']} & {r['gold']} & {_f(r['precision'],2)} & {_f(r['recall'],2)} & "
                          f"{_f(r['f1'],2)} & {_f(r['module_acc'],2)} & {_f(r['label_acc'],2)} & {_f(r['marks_acc'],2)} \\\\")
-            tag = {"native": "Native", "scanned": "Scanned", "all": "All"}[key]
+        for key in ("native", "scanned", "all", "heldout", "dev"):
+            if key not in s:
+                continue
+            r = s[key]
+            tag = {"native": "Native", "scanned": "Scanned", "all": "All", "heldout": "Heldout", "dev": "Dev"}[key]
+            m[f"Ext{tag}Papers"] = r["papers"]
+            m[f"Ext{tag}Gold"] = r["gold"]
             for k, v in (("F", r["f1"]), ("P", r["precision"]), ("R", r["recall"]), ("Module", r["module_acc"]),
                          ("Label", r["label_acc"]), ("Marks", r["marks_acc"]), ("Text", r["text_sim"])):
                 m[f"Ext{tag}{k}"] = _f(v, 2)
+        for t, summ in res["extraction"].get("match_sensitivity", {}).items():
+            tag = {"0.3": "Low", "0.7": "High"}.get(t)
+            for key, name in (("scanned", "Scanned"), ("all", "All"), ("native", "Native")):
+                if tag and key in summ:
+                    m[f"Ext{name}FAt{tag}"] = _f(summ[key]["f1"], 2)
         (OUT / "tab_extraction.tex").write_text(
             "\\begin{tabular}{@{}lcccccccc@{}}\n\\toprule\n\\textbf{PDFs} & \\textbf{N} & \\textbf{Gold} & \\textbf{P} & "
             "\\textbf{R} & \\textbf{F1} & \\textbf{Mod.} & \\textbf{Label} & \\textbf{Marks} \\\\\n\\midrule\n"
@@ -89,6 +112,10 @@ def build(res: dict) -> None:
         m["GroupItems"] = g["items"]
         m["GroupGold"] = g["gold_groups"]
         runs = g["runs"]
+
+        def run_of(model, algo, variant="raw"):
+            return next((r for r in runs if r["model"] == model and r["algorithm"] == algo and r["variant"] == variant), None)
+
         best_per_model = {}
         for r in runs:
             if r["algorithm"] == "complete":
@@ -97,45 +124,120 @@ def build(res: dict) -> None:
             if cur is None or r["loso"]["f1"] > cur["loso"]["f1"]:
                 best_per_model[r["model"]] = r
         lines = []
-        for r in sorted(best_per_model.values(), key=lambda r: -r["loso"]["f1"]):
-            lines.append(f"{DISPLAY[r['model']]} & {r['size_mb']:.0f} & {r['algorithm']} & {r['best_threshold']:.3f} & "
-                         f"{_f(r['best']['precision'],2)} & {_f(r['best']['recall'],2)} & {_f(r['best']['f1'])} & "
-                         f"{_f(r['loso']['f1'])} \\\\")
+        ranked_models = sorted(best_per_model.values(), key=lambda r: -r["loso"]["f1"])
+        must = {embedders.DEPLOYED, embedders.PREVIOUS_PICK, embedders.PRODUCTION} | set(embedders.LEXICAL)
+        shown = [r for i, r in enumerate(ranked_models) if i < 8 or r["model"] in must]   # the figure shows all
+        for r in shown:
+            lines.append(f"{DISPLAY[r['model']]} & {r['size_mb']:.0f} & {r['algorithm'][:3]}. & {r['variant']} & "
+                         f"{r['best_threshold']:.3f} & {_f(r['best']['precision'],2)} & {_f(r['best']['recall'],2)} & "
+                         f"{_f(r['best']['f1'])} & {_f(r['loso']['f1'])} \\\\")
         (OUT / "tab_models.tex").write_text(
-            "\\begin{tabular}{@{}lrlccccc@{}}\n\\toprule\n\\textbf{Model} & \\textbf{MB} & \\textbf{Link.} & $\\boldsymbol{\\tau^*}$ & "
-            "\\textbf{P} & \\textbf{R} & \\textbf{F1} & \\textbf{LOSO} \\\\\n\\midrule\n" + "\n".join(lines) +
+            "\\begin{tabular}{@{}lrllccccc@{}}\n\\toprule\n\\textbf{Model} & \\textbf{MB} & \\textbf{Link.} & \\textbf{Text} & "
+            "$\\boldsymbol{\\tau^*}$ & \\textbf{P} & \\textbf{R} & \\textbf{F1} & \\textbf{LOSO} \\\\\n\\midrule\n" + "\n".join(lines) +
             "\n\\bottomrule\n\\end{tabular}\n", encoding="utf-8")
-        old = next(r for r in runs if r["model"] == "paraphrase-MiniLM-L6-v2" and r["algorithm"] == "greedy" and r["variant"] == "raw")
-        new = next(r for r in runs if r["model"] == "mxbai-embed-xsmall-v1" and r["algorithm"] == "average" and r["variant"] == "raw")
+
+        old = run_of(embedders.PRODUCTION, "greedy")
+        new = run_of(embedders.DEPLOYED, "average")
+        prev = run_of(embedders.PREVIOUS_PICK, "average")
+        deployed_t = f"{SIMILARITY_THRESHOLD:.3f}"
+        m["NewModel"] = DISPLAY[embedders.DEPLOYED]
+        m["PrevModel"] = DISPLAY[embedders.PREVIOUS_PICK]
+        m["OldModel"] = DISPLAY[embedders.PRODUCTION]
         m["OldFAtSeventy"] = _f(old["at_production_threshold"]["f1"])
         m["OldLoso"] = _f(old["loso"]["f1"])
         m["OldBestTau"] = f"{old['best_threshold']:.3f}"
+        m["OldBcubed"] = _f(old["best_bcubed_f1"])
         m["NewLoso"] = _f(new["loso"]["f1"])
         m["NewBestF"] = _f(new["best"]["f1"])
-        m["NewTau"] = f"{new['best_threshold']:.3f}"
+        m["NewTau"] = f"{SIMILARITY_THRESHOLD:.3f}"
+        m["NewBestTau"] = f"{new['best_threshold']:.3f}"
         m["NewP"] = _f(new["best"]["precision"], 2)
         m["NewR"] = _f(new["best"]["recall"], 2)
         m["NewBcubed"] = _f(new["best_bcubed_f1"])
-        m["OldBcubed"] = _f(old["best_bcubed_f1"])
+        m["NewMB"] = f"{new['size_mb']:.0f}"
+        m["NewLosoTaus"] = ", ".join(sorted({f"{v['threshold']:.3f}" for v in new["loso"]["per_subject"].values()}))
         m["LosoGain"] = f"{100 * (new['loso']['f1'] - old['at_production_threshold']['f1']):.1f}"
-        greedy_new = next(r for r in runs if r["model"] == "mxbai-embed-xsmall-v1" and r["algorithm"] == "greedy" and r["variant"] == "raw")
+        m["PrevLoso"] = _f(prev["loso"]["f1"])
+        m["PrevMB"] = f"{prev['size_mb']:.0f}"
+        greedy_new = run_of(embedders.DEPLOYED, "greedy")
         m["NewGreedyLoso"] = _f(greedy_new["loso"]["f1"])
-        focus_drop = [r["loso"]["f1"] - next(x for x in runs if x["model"] == r["model"] and x["algorithm"] == r["algorithm"] and x["variant"] == "raw")["loso"]["f1"]
-                      for r in runs if r["variant"] == "focus"]
+        focus_drop = [r["loso"]["f1"] - run_of(r["model"], r["algorithm"])["loso"]["f1"] for r in runs if r["variant"] == "focus"]
         m["FocusMeanDrop"] = f"{-100 * statistics.mean(focus_drop):.1f}"
-        mp = next(r for r in runs if r["model"] == "all-mpnet-base-v2" and r["algorithm"] == "average" and r["variant"] == "raw")
+        m["FocusHelps"] = sum(d > 0.005 for d in focus_drop)
+        m["FocusRuns"] = len(focus_drop)
+        mp = run_of("all-mpnet-base-v2", "average")
         m["MpnetLoso"] = _f(mp["loso"]["f1"])
         m["MpnetMB"] = f"{mp['size_mb']:.0f}"
-        m["NewMB"] = f"{new['size_mb']:.0f}"
-        avg_wins = sum(1 for r in runs if r["algorithm"] == "average" and r["variant"] == "raw" and r["loso"]["f1"] >
-                       next(x for x in runs if x["model"] == r["model"] and x["algorithm"] == "greedy" and x["variant"] == "raw")["loso"]["f1"] + 0.005)
+        avg_wins = sum(1 for r in runs if r["algorithm"] == "average" and r["variant"] == "raw"
+                       and r["loso"]["f1"] > run_of(r["model"], "greedy")["loso"]["f1"] + 0.005)
         m["AvgWins"] = avg_wins
         m["NumModels"] = len(best_per_model)
+        m["NumConfigs"] = len(runs)
         top = sorted(best_per_model.values(), key=lambda r: -r["loso"]["f1"])
         m["TopThreeSpread"] = _f(top[0]["loso"]["f1"] - top[2]["loso"]["f1"])
+        m["NumModules"] = len(new["loso"]["modules"])
+        m["HeldoutSubjects"] = ", ".join(sorted(HELD_OUT_SUBJECTS))
+        held = [s for s in g["subjects"] if s in HELD_OUT_SUBJECTS]
+        if held:
+            def fixed_f1(run, t):
+                tot = Counter()
+                for s in held:
+                    tot.update({k: run["fixed"][t]["per_subject"][s][k] for k in ("tp", "fp", "fn")})
+                p, r_ = tot["tp"] / max(tot["tp"] + tot["fp"], 1), tot["tp"] / max(tot["tp"] + tot["fn"], 1)
+                return 2 * p * r_ / (p + r_) if p + r_ else 0.0
+            # The pick made on the first three subjects, scored on the subject added afterwards
+            m["HeldoutPrevF"] = _f(fixed_f1(prev, "0.725"))
+            m["HeldoutOldF"] = _f(fixed_f1(old, "0.700"))
+            m["HeldoutPrevGain"] = f"{100 * (fixed_f1(prev, '0.725') - fixed_f1(old, '0.700')):.1f}"
+            m["HeldoutNewLosoF"] = _f(statistics.mean(new["loso"]["per_subject"][s]["f1"] for s in held))
+        sig = g.get("significance", {})
+        for key, tag in (("new_loso_vs_old_at_070", "Loso"), ("new_loso_vs_old_loso", "LosoTuned"),
+                         ("new_at_deployed_vs_old_at_070", "Fixed"), ("new_loso_vs_prev_loso", "VsPrev"),
+                         ("prev_at_0725_vs_old_at_070", "Prev")):
+            if key in sig:
+                m[f"Sig{tag}Lo"] = f"{100 * sig[key]['lo']:.1f}"
+                m[f"Sig{tag}Hi"] = f"{100 * sig[key]['hi']:.1f}"
+                m[f"Sig{tag}Diff"] = f"{100 * sig[key]['diff']:.1f}"
+                m["SigUnits"] = sig[key]["units"]
+        for key, tag in (("deployable", "Nested"), ("any_size", "NestedAny")):
+            n = g.get("nested", {}).get(key)
+            if n:
+                m[f"{tag}F"] = _f(n["f1"])
+                picks = Counter(DISPLAY[f["model"]] for f in n["folds"].values())
+                m[f"{tag}Picks"] = ", ".join(f"{k} ({v})" for k, v in picks.most_common())
+        for key, val in g.get("borderline_merged", {}).items():
+            model = key.split("|")[0]
+            tag = "New" if model == embedders.DEPLOYED else "Old"
+            m[f"Border{tag}F"] = _f(val["f1"])
+        m["Deployed"] = deployed_t
+        m["NewLosoLo"], m["NewLosoHi"] = (_f(x) for x in new["loso"]["ci"])
+        neural = [r for r in ranked_models if r["model"] not in embedders.LEXICAL]
+        lexical = [r for r in ranked_models if r["model"] in embedders.LEXICAL]
+        m["NumNeural"] = len(neural)
+        m["NumLexical"] = len(lexical)
+        m["BestModel"] = DISPLAY[neural[0]["model"]]
+        m["BestModelF"] = _f(neural[0]["loso"]["f1"])
+        m["BestModelMB"] = f"{neural[0]['size_mb']:.0f}"
+        if lexical:
+            m["LexBestModel"] = DISPLAY[lexical[0]["model"]]
+            m["LexBestF"] = _f(lexical[0]["loso"]["f1"])
+            m["LexBestLo"], m["LexBestHi"] = (_f(x) for x in lexical[0]["loso"]["ci"])
+            for r in lexical:
+                m["Lex" + ("Word" if r["model"].endswith("word") else "Char") + "F"] = _f(r["loso"]["f1"])
+            m["NeuralOverLexical"] = f"{100 * (new['loso']['f1'] - lexical[0]['loso']['f1']):.1f}"
+            m["NeuralBeatsLexical"] = sum(r["loso"]["f1"] > lexical[0]["loso"]["f1"] for r in neural)
+        large = [r for r in neural if r["size_mb"] > 1000]
+        if large:
+            m["LargeBestModel"] = DISPLAY[large[0]["model"]]
+            m["LargeBestF"] = _f(large[0]["loso"]["f1"])
+            m["LargeMB"] = f"{large[0]['size_mb']:.0f}"
+        deployable = [r for r in neural if r["size_mb"] <= 150]
+        m["NumDeployable"] = len(deployable)
+        m["DeployableTopSpread"] = _f(deployable[0]["loso"]["f1"] - deployable[min(2, len(deployable) - 1)]["loso"]["f1"])
+        m["NewRank"] = 1 + [r["model"] for r in neural].index(embedders.DEPLOYED)
     if "grouping_hybrid" in res:
         for r in res["grouping_hybrid"]["runs"]:
-            tag = "New" if r["model"] == "mxbai-embed-xsmall-v1" else "Old"
+            tag = "New" if r["model"] == embedders.DEPLOYED else "Old"
             m[f"Hybrid{tag}Loso"] = _f(r["loso"]["f1"])
 
     # ── Backtest ──
@@ -152,6 +254,63 @@ def build(res: dict) -> None:
                 m[f"Bt{tag}AtThree"] = f"{s[key]['marks_at_k3']:.1f}"
                 m[f"Bt{tag}ToPass"] = f"{s[key]['k_to_pass_mean']:.1f}" if s[key]["k_to_pass_mean"] is not None else "--"
         m["BtGainOverRandom"] = f"{s['ours']['marks_at_k3'] - s['random']['marks_at_k3']:.1f}"
+        for other, tag in (("random", "Gain"), ("frequency", "VsFreq")):
+            v = s.get(f"ours_vs_{other}_k3")
+            if v:
+                m[f"Bt{tag}Mean"] = f"{v['mean']:.1f}"
+                m[f"Bt{tag}Lo"] = f"{v['lo']:.1f}"
+                m[f"Bt{tag}Hi"] = f"{v['hi']:.1f}"
+                m[f"Bt{tag}Wins"] = v["wins"]
+                m[f"Bt{tag}Losses"] = v["losses"]
+                m[f"Bt{tag}Ties"] = v["ties"]
+                m[f"Bt{tag}SignP"] = f"{v['sign_p']:.3f}"
+        if "ours_vs_random_k3" in s:
+            m["BtWins"] = s["ours_vs_random_k3"]["wins"]
+        m["BtOursReachPass"] = s["ours"].get("reach_pass", "--")
+        m["BtTiedShare"] = _pct(statistics.mean(c.get("tied_share_at_k3", 0) for c in b["cases"]), 0)
+        m["BtModelPaperShare"] = _pct(statistics.mean(1 - c["train_see_papers"] / len(c["train"]) for c in b["cases"]), 0)
+        eo = b.get("exams_only", {}).get("summary")
+        if eo:
+            m["BtExamsOnlyCases"] = eo["ours"]["cases"]
+            m["BtExamsOnlyOurs"] = f"{eo['ours']['marks_at_k3']:.1f}"
+            m["BtExamsOnlyRand"] = f"{eo['random']['marks_at_k3']:.1f}"
+            m["BtExamsOnlyCeiling"] = f"{eo['ceiling_mean']:.1f}"
+            m["BtExamsOnlyRepeat"] = _pct(eo["repeat_share_of_marks_mean"], 0)
+        bm = b.get("borderline_merged", {}).get("summary")
+        if bm:
+            m["BtBorderRepeat"] = _pct(bm["repeat_share_of_marks_mean"], 0)
+            m["BtBorderCeiling"] = f"{bm['ceiling_mean']:.1f}"
+            m["BtBorderOurs"] = f"{bm['ours']['marks_at_k3']:.1f}"
+            m["BtBorderRand"] = f"{bm['random']['marks_at_k3']:.1f}"
+        words = {1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five"}
+        for n, row in s.get("by_train_papers", {}).items():
+            w = words.get(int(n))
+            if not w:
+                continue
+            m[f"BtN{w}Cases"] = row["cases"]
+            m[f"BtN{w}Ours"] = f"{row['ours']:.1f}"
+            m[f"BtN{w}Rand"] = f"{row['random']:.1f}"
+            m[f"BtN{w}Gain"] = f"{row['ours'] - row['random']:.1f}"
+            m[f"BtN{w}Ceiling"] = f"{row['ceiling']:.1f}"
+            m[f"BtN{w}Repeat"] = _pct(row["repeat_share"], 0)
+        subjects_bt = sorted({c["subject"] for c in b["cases"]})
+        m["BtSubjects"] = len(subjects_bt)
+        for key, tag in (("seen_once", "Once"), ("seen_2plus", "TwoPlus"), ("in_last_exam", "Last"),
+                         ("not_in_last_exam", "NotLast"), ("all", "All")):
+            r = b.get("reappearance", {}).get(key)
+            if r:
+                m[f"Back{tag}"] = _pct(r["rate"], 0)
+                m[f"Back{tag}Lo"] = _pct(r["ci"][0], 0)
+                m[f"Back{tag}Hi"] = _pct(r["ci"][1], 0)
+                m[f"Back{tag}N"] = r["seen"]
+        for key, tag in (("repeat_vs_once", "DiffRepeat"), ("last_vs_not", "DiffLast")):
+            r = b.get("reappearance", {}).get(key)
+            if r:
+                m[f"Back{tag}"] = f"{100 * r['diff']:.0f}"
+                m[f"Back{tag}Lo"] = f"{100 * r['lo']:.0f}"
+                m[f"Back{tag}Hi"] = f"{100 * r['hi']:.0f}"
+        if "reappearance" in b:
+            m["BackExams"] = b["reappearance"]["exams"]
         rq = [c["repeated_questions"] / c["test_questions"] for c in b["cases"]]
         m["BtRepeatQMin"] = _pct(min(rq), 0)
         m["BtRepeatQMax"] = _pct(max(rq), 0)

@@ -38,8 +38,11 @@ def summary_md(res: dict) -> str:
         for r in sorted(g["runs"], key=lambda r: -r["loso"]["f1"]):
             b = r["best"]
             out.append(f"| {r['model']} | {r['algorithm']} | {r['variant']} | {r['size_mb']} | {r['best_threshold']:.3f} | "
-                       f"{b['precision']:.3f} | {b['recall']:.3f} | {b['f1']:.3f} | {r['at_production_threshold']['f1']:.3f} | "
+                       f"{b['precision']:.3f} | {b['recall']:.3f} | {b['f1']:.3f} | {(r['at_production_threshold'] or {}).get('f1', float('nan')):.3f} | "
                        f"{r['loso']['f1']:.3f} | {r['best_bcubed_f1']:.3f} |")
+        out.append("")
+        for k, v in g.get("significance", {}).items():
+            out.append(f"- {k}: ΔF1 {v['diff']:+.3f}, 95% CI [{v['lo']:+.3f}, {v['hi']:+.3f}] (paired bootstrap over {v['units']} modules)")
         out.append("")
     if "backtest" in res:
         b = res["backtest"]
@@ -50,6 +53,16 @@ def summary_md(res: dict) -> str:
             for m, curve in c["curves"].items():
                 out.append(f"| {c['subject']} {c['test_session']} [{m}] | {len(c['train'])} | {c['repeat_share_of_marks']:.2f} | "
                            f"{c['ceiling_all_seen']:.0f} | " + " | ".join(f"{v:.1f}" for v in curve) + " |")
+        out.append("")
+        s = b["summary"]
+        if "ours_vs_random_k3" in s:
+            v = s["ours_vs_random_k3"]
+            out.append(f"Ours − random at k=3: {v['mean']:+.1f} marks, 95% CI [{v['lo']:+.1f}, {v['hi']:+.1f}], "
+                       f"ours ahead in {v['wins']} of {v['cases']} exams ({v['ties']} ties)")
+            out.append("")
+        for n, row in s.get("by_train_papers", {}).items():
+            out.append(f"- {n} earlier paper(s), {row['cases']} exam(s): ours {row['ours']:.1f}, random {row['random']:.1f}, "
+                       f"ceiling {row['ceiling']:.1f}, repeat share {row['repeat_share']:.2f}")
         out.append("")
         if b.get("duplicates_dropped"):
             out.append(f"Duplicate scans dropped: {b['duplicates_dropped']}")
@@ -84,7 +97,11 @@ def main() -> None:
     if "extraction" in stages:
         print("Extraction…")
         res["extraction"] = experiments.extraction_eval(gt, system)
+        # How much do the scores depend on the text-similarity cut-off used to match questions?
+        res["extraction"]["match_sensitivity"] = {f"{t:.1f}": experiments.extraction_eval(gt, system, t)["summary"]
+                                                  for t in (0.3, 0.7)}
         figures.extraction(res["extraction"])
+        figures.extraction_errors(res["extraction"])
     if "grouping" in stages and groups:
         print("Grouping…")
         res["grouping"] = experiments.grouping_eval(gt, groups, args.models)
@@ -96,11 +113,16 @@ def main() -> None:
         res["grouping_hybrid"] = experiments.hybrid_eval(gt, groups, [experiments.embedders.DEPLOYED,
                                                                       experiments.embedders.PRODUCTION])
         figures.models(res["grouping"])
+        figures.models_size(res["grouping"])
+        figures.subject_heatmap(res["grouping"])
+        figures.pr_curves(res["grouping"])
     if "backtest" in stages and groups:
         print("Backtest…")
         res["backtest"] = experiments.backtest(gt, groups, system)
         figures.backtest(res["backtest"])
         figures.backtest_cases(res["backtest"])
+        figures.backtest_growth(res["backtest"])
+        figures.reappearance(res["backtest"])
     if "perf" in stages:
         print("Performance…")
         res["perf"] = experiments.perf(system)
