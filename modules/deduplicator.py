@@ -16,10 +16,10 @@ Algorithm: average-linkage agglomerative clustering (default).
   uses every pairwise similarity, so one odd phrasing can't drag a group off.
   The older centroid-based greedy clustering is kept as method="greedy".
 
-Model + threshold were chosen on hand-labelled VTU papers (eval/, 261 questions,
-170 gold groups), picking τ on two subjects and scoring on the third:
-  mxbai-embed-xsmall-v1 + average linkage, τ = 0.725  →  pairwise F1 0.712
-  paraphrase-MiniLM-L6-v2 + greedy, τ = 0.70 (previous) →  pairwise F1 0.625
+Model + threshold were chosen on hand-labelled VTU papers (eval/, 4 subjects),
+picking τ on three subjects and scoring on the fourth: gte-small + average linkage
+chose τ = 0.925 in every fold. gte-small's cosine scores are compressed towards 1,
+so its threshold is much higher than other models' (see eval/results/RESULTS.md).
 """
 
 import re
@@ -27,17 +27,17 @@ import numpy as np
 from modules import embedder
 
 
-SIMILARITY_THRESHOLD = 0.725  # chosen by leave-one-subject-out evaluation (see docstring)
+SIMILARITY_THRESHOLD = 0.925  # chosen by leave-one-subject-out evaluation (see docstring)
 MIN_TEXT_LENGTH = 12           # ignore garbage OCR fragments
 
 
 # ── OCR noise cleaner ──────────────────────────────────────────────────────────
 
 _LEADING_JUNK = re.compile(
-    r"^[\s_\-|.]*"               # leading underscores, pipes, dashes
-    r"(?:[a-c]\.?\s*)?"          # sub-question label "a." "b." etc.
-    r"(?:Q\.?\s*\d{1,2}\.?\s*)?" # question number "Q.3" etc.
-    r"(?:[a-c]\.?\s*)?"          # second sub-label (Q.3a.)
+    r"^[\s_\-|.]*"                    # leading underscores, pipes, dashes
+    r"(?:[a-c](?:[.)]|\s)\s*)?"       # sub-question label "a." "b)" "c " — never the start of a word
+    r"(?:Q\.?\s*\d{1,2}\.?\s*)?"      # question number "Q.3" etc.
+    r"(?:[a-c](?:[.)]|\s|$)\s*)?"     # second sub-label (Q.3a. / Q.3 a)
     r"[\s_\-|.]*",
     re.IGNORECASE,
 )

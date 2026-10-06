@@ -85,3 +85,26 @@ def test_missing_marks_share_what_the_other_parts_leave():
     out = fill_missing_marks(qs)
     assert [q["marks"] for q in out] == [8, 6, 6, 20, 10]
     assert qs[1]["marks"] is None   # inputs are not modified
+
+
+def test_cleaner_strips_labels_but_not_the_start_of_words():
+    from modules.deduplicator import _clean_for_embed
+
+    assert _clean_for_embed("a. Explain CRC") == "Explain CRC"
+    assert _clean_for_embed("Q.3 b. Define stack") == "Define stack"
+    assert _clean_for_embed("Compare TCP and UDP.") == "Compare TCP and UDP"
+    assert _clean_for_embed("Calculate the checksum") == "Calculate the checksum"
+    assert _clean_for_embed("Briefly explain RIP") == "Briefly explain RIP"
+
+
+def test_undated_model_papers_rank_below_a_recent_exam():
+    from modules.scorer import score_canonicals
+
+    canon = [
+        {"representative_text": "two model papers", "avg_marks": 10,
+         "appearances": [{"paper_id": 1, "year": None}, {"paper_id": 2, "year": None}]},
+        {"representative_text": "model paper and last exam", "avg_marks": 10,
+         "appearances": [{"paper_id": 1, "year": None}, {"paper_id": 3, "year": 2025}]},
+    ]
+    ranked = score_canonicals(canon, 3, current_year=2025)
+    assert ranked[0]["representative_text"] == "model paper and last exam"
