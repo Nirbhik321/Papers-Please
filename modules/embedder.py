@@ -1,14 +1,14 @@
 """
 embedder.py — Sentence-BERT encoding for semantic similarity.
 
-Uses thenlper/gte-small (384-d, ~133 MB), run through ONNX Runtime instead of
-PyTorch, so the install is ~100 MB instead of ~2 GB and it fits in a 512 MB server.
+Uses sentence-transformers/all-MiniLM-L12-v2 (384-d, ~133 MB), run through ONNX
+Runtime instead of PyTorch, so the install is ~100 MB instead of ~2 GB and it fits
+in a 512 MB server.
 
-Chosen by evaluation on hand-labelled VTU papers (eval/): of the 9 small embedding
-models compared, it grouped same-meaning exam questions best among those that fit
-the server (with average-linkage clustering), choosing the same threshold whichever
-subject was held out. mxbai-embed-xsmall-v1 looked best on the first three subjects
-but did not hold up once a fourth subject was added.
+Chosen by evaluation on labelled VTU papers (eval/): of the 20 embedding models
+compared, it grouped same-meaning exam questions best among those that fit the
+server (average-linkage clustering), and picked the same threshold whichever
+subject was held out. Models four to ten times larger did not do better.
 
 The model files are downloaded from the Hugging Face hub on first use (or
 baked into the Docker image at build time) and cached for the process lifetime.
@@ -16,7 +16,7 @@ baked into the Docker image at build time) and cached for the process lifetime.
 
 import numpy as np
 
-_REPO = "thenlper/gte-small"
+_REPO = "sentence-transformers/all-MiniLM-L12-v2"
 _MAX_TOKENS = 128   # exam questions are short; the evaluation used the same limit
 _DIM = 384
 

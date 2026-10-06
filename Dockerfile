@@ -13,7 +13,7 @@ RUN pip install -r requirements.txt
 
 # Bake the embedding model into the image so a cold start never downloads it
 RUN python -c "from huggingface_hub import hf_hub_download as d; \
-r='thenlper/gte-small'; d(r,'onnx/model.onnx'); d(r,'tokenizer.json')"
+r='sentence-transformers/all-MiniLM-L12-v2'; d(r,'onnx/model.onnx'); d(r,'tokenizer.json')"
 ENV HF_HUB_OFFLINE=1
 
 COPY subjects.yaml .

@@ -17,9 +17,8 @@ Algorithm: average-linkage agglomerative clustering (default).
   The older centroid-based greedy clustering is kept as method="greedy".
 
 Model + threshold were chosen on hand-labelled VTU papers (eval/, 4 subjects),
-picking τ on three subjects and scoring on the fourth: gte-small + average linkage
-chose τ = 0.925 in every fold. gte-small's cosine scores are compressed towards 1,
-so its threshold is much higher than other models' (see eval/results/RESULTS.md).
+picking τ on three subjects and scoring on the fourth: all-MiniLM-L12-v2 + average
+linkage chose τ = 0.675 in every fold (see eval/results/RESULTS.md).
 """
 
 import re
@@ -27,7 +26,7 @@ import numpy as np
 from modules import embedder
 
 
-SIMILARITY_THRESHOLD = 0.925  # chosen by leave-one-subject-out evaluation (see docstring)
+SIMILARITY_THRESHOLD = 0.675  # chosen by leave-one-subject-out evaluation (see docstring)
 MIN_TEXT_LENGTH = 12           # ignore garbage OCR fragments
 
 
