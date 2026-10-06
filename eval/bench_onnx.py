@@ -1,7 +1,7 @@
 """
 The production encoder (ONNX Runtime + tokenizers), measured in a fresh interpreter so the
 memory figure covers the runtime import and model load and nothing else in the process:
-    python -m eval.bench_onnx data/eval/bench_texts.json mxbai-embed-xsmall-v1
+    python -m eval.bench_onnx data/eval/bench_texts.json all-MiniLM-L12-v2
 Prints one JSON line, with the same fields as eval/bench_torch.py.
 """
 
