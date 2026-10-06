@@ -1,8 +1,8 @@
 """
 The experiments behind every number in the paper.
 
-  extraction_eval   system-extracted questions vs hand transcriptions
-  grouping_eval     same-meaning grouping vs hand-labelled groups: models × thresholds × algorithms,
+  extraction_eval   system-extracted questions vs reference transcriptions
+  grouping_eval     same-meaning grouping vs reference groups: models × thresholds × algorithms,
                     with leave-one-subject-out threshold selection
   backtest          rank topics from older papers only, then measure the marks a student would
                     secure in the *next* exam by studying the top-k topics per module
@@ -571,7 +571,7 @@ def backtest(gt: dict[str, dict], groups: dict[str, dict], system: dict[str, dic
             if unlabelled:
                 raise ValueError(f"{test_id}: {len(unlabelled)} test questions have no gold group, e.g. {unlabelled[0]}")
             test_year = test["exam_year"]
-            # topics = hand-labelled groups seen in training papers, per module
+            # topics = reference groups seen in training papers, per module
             topics_by_module = defaultdict(dict)
             for tid in train_ids:
                 p = papers[tid]
@@ -768,7 +768,7 @@ def _backtest_summary(cases, ks):
 def _system_curve(subject, train_ids, test, test_id, test_year, gt, system, gmap, ks):
     """
     The deployed pipeline end to end: system-extracted questions, production grouping and
-    scoring. A studied system topic covers the hand-labelled groups of the questions in it.
+    scoring. A studied system topic covers the reference groups of the questions in it.
     """
     from modules.deduplicator import deduplicate
     from modules.scorer import fill_missing_marks, score_canonicals

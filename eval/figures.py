@@ -222,7 +222,7 @@ def subject_heatmap(res, n_top=7):
     subjects = res["subjects"]
     ranked = sorted(best.values(), key=lambda r: -r["loso"]["f1"])
     keep = [r for r in ranked if _role(r["model"]) != "lexical"][:n_top]
-    for name in (embedders.DEPLOYED, embedders.PREVIOUS_PICK, embedders.PRODUCTION, "tfidf-word"):
+    for name in (embedders.DEPLOYED, embedders.PREVIOUS_PICK, embedders.PRODUCTION, "tfidf-char"):
         r = best.get(name)
         if r and r not in keep:
             keep.append(r)
@@ -262,7 +262,7 @@ def pr_curves(res):
     lines = [(run_of(embedders.DEPLOYED, "average"), SIMILARITY_THRESHOLD, EMPH["deployed"], "-", "o"),
              (run_of(embedders.PRODUCTION, "greedy"), 0.70, EMPH["original"], "--", "s"),
              (top, None, EMPH["other"], "-.", "^"),
-             (best.get("tfidf-word"), None, EMPH["lexical"], ":", "D")]
+             (best.get("tfidf-char"), None, EMPH["lexical"], ":", "D")]
     fig, ax = plt.subplots(figsize=(COL_W, 2.3))
     for run, t_mark, color, ls, mk in lines:
         if not run:

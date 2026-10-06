@@ -15,9 +15,10 @@ RESULTS = ROOT / "eval" / "results"             # committed: aggregate numbers +
 FIGURES = RESULTS / "figures"
 RAW = ROOT / "data" / "raw"
 
-# Added on 2026-10-06, after the parser rules, the embedding model and the threshold were
-# fixed, so they test the frozen pipeline. BCS304 is a whole new subject (held out for
-# grouping too); the BCS501 additions are new scans and two new exams of a known subject.
+# Added on 2026-10-06, after the parser rules were frozen, so they test the frozen extraction.
+# BCS304 is a whole new subject; it was later used to select the deployed grouping model, so only
+# the earlier pick (mxbai-embed-xsmall, tau=0.725) is a prospective grouping test on it. The BCS501
+# additions are new scans (two of them second scans of development exams) and two new exams.
 HELD_OUT_SUBJECTS = {"BCS304"}
 _BCS501 = "VTU_Question_Paper_of_BCS501_Software_Engineering_and_Project_Management_"
 HELD_OUT_PAPERS = {

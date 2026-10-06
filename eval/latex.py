@@ -96,6 +96,27 @@ def build(res: dict) -> None:
             for k, v in (("F", r["f1"]), ("P", r["precision"]), ("R", r["recall"]), ("Module", r["module_acc"]),
                          ("Label", r["label_acc"]), ("Marks", r["marks_acc"]), ("Text", r["text_sim"])):
                 m[f"Ext{tag}{k}"] = _f(v, 2)
+        # Scans only, split by development/unseen (the native/scan mix differs between the splits), and the
+        # unseen papers without the second scans of exams already in the development set
+        per = res["extraction"]["per_paper"]
+        dups = set(res.get("grouping", {}).get("duplicates_dropped", {}))
+
+        def _agg(rows):
+            tp, fp, fn = (sum(r[k] for r in rows) for k in ("tp", "fp", "fn"))
+            pr, rc = tp / (tp + fp) if tp + fp else 0.0, tp / (tp + fn) if tp + fn else 0.0
+            acc = {k: sum(r[k] * r["tp"] for r in rows) / tp if tp else 0.0 for k in ("module_acc", "label_acc", "marks_acc")}
+            return {"papers": len(rows), "f1": 2 * pr * rc / (pr + rc) if pr + rc else 0.0, **acc}
+        for split, tag in (("dev", "Dev"), ("heldout", "Heldout")):
+            rows = [r for r in per if r.get("split") == split]
+            m[f"Ext{tag}NativePapers"] = sum(r["pdf_type"] == "native" for r in rows)
+            a = _agg([r for r in rows if r["pdf_type"] == "scanned"])
+            m[f"Ext{tag}ScanPapers"] = a["papers"]
+            m[f"Ext{tag}ScanF"], m[f"Ext{tag}ScanModule"], m[f"Ext{tag}ScanLabel"] = (
+                _f(a["f1"], 2), _f(a["module_acc"], 2), _f(a["label_acc"], 2))
+        a = _agg([r for r in per if r.get("split") == "heldout" and r["paper_id"] not in dups])
+        m["ExtHeldoutNoDupPapers"] = a["papers"]
+        m["ExtHeldoutNoDupF"], m["ExtHeldoutNoDupModule"], m["ExtHeldoutNoDupLabel"] = (
+            _f(a["f1"], 2), _f(a["module_acc"], 2), _f(a["label_acc"], 2))
         for t, summ in res["extraction"].get("match_sensitivity", {}).items():
             tag = {"0.3": "Low", "0.7": "High"}.get(t)
             for key, name in (("scanned", "Scanned"), ("all", "All"), ("native", "Native")):
@@ -126,7 +147,7 @@ def build(res: dict) -> None:
         lines = []
         ranked_models = sorted(best_per_model.values(), key=lambda r: -r["loso"]["f1"])
         must = {embedders.DEPLOYED, embedders.PREVIOUS_PICK, embedders.PRODUCTION} | set(embedders.LEXICAL)
-        shown = [r for i, r in enumerate(ranked_models) if i < 8 or r["model"] in must]   # the figure shows all
+        shown = [r for i, r in enumerate(ranked_models) if i < 4 or r["model"] in must]   # the figure shows all
         for r in shown:
             lines.append(f"{DISPLAY[r['model']]} & {r['size_mb']:.0f} & {r['algorithm'][:3]}. & {r['variant']} & "
                          f"{r['best_threshold']:.3f} & {_f(r['best']['precision'],2)} & {_f(r['best']['recall'],2)} & "
@@ -293,6 +314,39 @@ def build(res: dict) -> None:
             m[f"BtN{w}Gain"] = f"{row['ours'] - row['random']:.1f}"
             m[f"BtN{w}Ceiling"] = f"{row['ceiling']:.1f}"
             m[f"BtN{w}Repeat"] = _pct(row["repeat_share"], 0)
+        # Paired comparisons at k=3 computed the same way as experiments.backtest (exam bootstrap, seed 11)
+        import random as _random
+        from eval.experiments import _sign_test
+        k3 = b["ks"].index(3)
+
+        def _paired(gains):
+            rng = _random.Random(11)
+            boot = sorted(statistics.mean(gains[rng.randrange(len(gains))] for _ in gains) for _ in range(5000))
+            wins, losses = sum(g > 0.05 for g in gains), sum(g < -0.05 for g in gains)
+            return {"mean": statistics.mean(gains), "lo": boot[125], "hi": boot[4874], "wins": wins, "losses": losses,
+                    "ties": len(gains) - wins - losses, "cases": len(gains), "sign_p": _sign_test(wins, losses)}
+
+        def _put(tag, v):
+            m[f"{tag}Mean"], m[f"{tag}Lo"], m[f"{tag}Hi"] = (f"{v[k]:.1f}" for k in ("mean", "lo", "hi"))
+            m[f"{tag}Wins"], m[f"{tag}Losses"], m[f"{tag}Ties"], m[f"{tag}Cases"] = v["wins"], v["losses"], v["ties"], v["cases"]
+            m[f"{tag}SignP"] = f"{v['sign_p']:.3f}"
+        cs = b["cases"]
+        for other, tag in (("random", "BtSysGain"), ("frequency", "BtSysVsFreq")):
+            _put(tag, _paired([c["curves"]["system_end_to_end"][k3] - c["curves"][other][k3] for c in cs]))
+        mid = [c for c in cs if 2 <= len(c["train"]) <= 4]
+        if mid:
+            _put("BtMidGain", _paired([c["curves"]["ours"][k3] - c["curves"]["random"][k3] for c in mid]))
+        if eo and "ours_vs_random_k3" in eo:
+            _put("BtExamsOnlyGain", eo["ours_vs_random_k3"])
+        # Headroom: share of the random-to-oracle gap that our ranking closes at k=3
+        o, r_, q = (s[k]["marks_at_k3"] for k in ("oracle", "random", "ours"))
+        m["BtNormGain"] = _pct((q - r_) / (o - r_), 0) if o > r_ else "--"
+        m["BtTopicsSeen"] = f"{statistics.mean(v for c in cs for v in c['topics_seen_per_module'].values()):.1f}"
+        # Exams needed for the sign test to reach p < 0.05 at the current win share
+        v = s.get("ours_vs_random_k3")
+        if v and v["wins"] + v["losses"]:
+            share = v["wins"] / (v["wins"] + v["losses"])
+            m["BtSignNeeded"] = next((n for n in range(1, 500) if _sign_test(round(share * n), n - round(share * n)) < 0.05), "--")
         subjects_bt = sorted({c["subject"] for c in b["cases"]})
         m["BtSubjects"] = len(subjects_bt)
         for key, tag in (("seen_once", "Once"), ("seen_2plus", "TwoPlus"), ("in_last_exam", "Last"),

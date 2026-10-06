@@ -16,7 +16,7 @@ Algorithm: average-linkage agglomerative clustering (default).
   uses every pairwise similarity, so one odd phrasing can't drag a group off.
   The older centroid-based greedy clustering is kept as method="greedy".
 
-Model + threshold were chosen on hand-labelled VTU papers (eval/, 4 subjects),
+Model + threshold were chosen on VTU papers with reference labels (eval/, 4 subjects),
 picking τ on three subjects and scoring on the fourth: all-MiniLM-L12-v2 + average
 linkage chose τ = 0.675 in every fold (see eval/results/RESULTS.md).
 """
