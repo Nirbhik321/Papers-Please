@@ -62,7 +62,7 @@ Papers-Please/
 │   ├── deduplicator.py         # Two-pass centroid clustering
 │   ├── scorer.py               # Recency-decay scoring + marks ladder
 │   ├── tagger.py               # Topic labels (Ollama if present, phrase extraction otherwise)
-│   └── exporter.py             # A4 cheat sheet PDF + CSV question bank
+│   └── exporter.py             # A4 cheat sheet PDF + question bank (CSV, Excel)
 │
 ├── supabase/migrations/        # Postgres schema with RLS + keep-alive cron jobs
 ├── subjects.yaml               # 145+ VTU 2022-scheme subject codes
@@ -98,7 +98,7 @@ Papers-Please/
 
 Two rules shape everything:
 
-1. **Reading never does work.** Every subject has a precomputed *snapshot* (the JSON the page renders, the cheat-sheet PDF and the CSV). A student opening a subject gets a pre-rendered page; the API only ever returns stored bytes.
+1. **Reading never does work.** Every subject has a precomputed *snapshot* (the JSON the page renders, the cheat-sheet PDF and the CSV). A student opening a subject gets a pre-rendered page; the API only ever returns stored bytes (the question bank downloads are just the stored JSON reformatted as CSV or Excel).
 2. **Uploads are hostile until proven otherwise.** Files are checked before they're accepted, parsed only inside a sandbox, and can't change what students see until they pass duplicate and sanity checks — or a moderator approves them.
 
 ---
@@ -211,7 +211,7 @@ Dark mode follows the system setting, can be toggled, and is applied by an inlin
 | `GET /api/keepalive` | anyone | Cron ping target; runs `SELECT 1` so the database counts as active |
 | `GET /api/stats`, `/api/subjects`, `/api/catalog`, `/api/recent` | anyone | Lists for the home page |
 | `GET /api/subjects/{code}` | anyone | Snapshot JSON |
-| `GET /api/subjects/{code}/cheatsheet.pdf`, `/questions.csv` | anyone | Downloads |
+| `GET /api/subjects/{code}/cheatsheet.pdf`, `/questions.csv`, `/questions.xlsx` | anyone | Downloads |
 | `POST /api/uploads` | anyone (rate-limited, Turnstile) | Returns `{id, token}`; `409` for exact duplicates |
 | `GET /api/uploads/{id}` | uploader (`X-Upload-Token`) | Status, detected metadata, preview |
 | `POST /api/uploads/{id}/confirm` | uploader | Subject + session confirmation |
@@ -280,7 +280,7 @@ Short topic labels. Uses a local Ollama model if one is running; otherwise (alwa
 
 ### exporter.py
 - **Cheat sheet:** a one-page A4 PDF (fpdf2) — for each module, the top three topics with a frequency square (red = most papers, amber = half or more, outline = occasional), the question, papers seen, usual marks, and the ladder result ("Top 3 → full 20M").
-- **CSV question bank:** Module, Priority Rank, Topic Label, Question Text, Avg Marks, Times Repeated, Total Papers, Frequency %, Years Seen, Expected Marks, Full Coverage.
+- **Question bank (CSV and Excel):** built from the snapshot JSON when downloaded, one row per printed question: Module, Topic rank, Topic, How likely, Asked in, Usual marks, Session, Question number, Marks, Question. The CSV has a UTF-8 BOM, CRLF line endings and apostrophe-prefixed formula-like cells; the .xlsx (openpyxl) has an All questions sheet, one sheet per module and an About sheet, with frozen headers, filters, topic banding and the site's likelihood colours.
 
 ---
 

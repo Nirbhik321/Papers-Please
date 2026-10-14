@@ -53,3 +53,4 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+papers_by_subject/

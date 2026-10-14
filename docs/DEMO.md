@@ -5,7 +5,9 @@ The demo uses its own database in `data/demo/`, so rehearsing never touches your
 
 ---
 
-## Tonight (once, ~5 minutes)
+The copy-paste commands (setup, prepare, start, stop, reset, troubleshooting) are in [`RUN_LOCAL.md`](../RUN_LOCAL.md). This page is the script for the demo itself.
+
+## Tonight (once, ~3 minutes)
 
 1. Close anything using ports **3000** or **8000** (old dev servers).
 2. From the project folder:
@@ -14,7 +16,9 @@ The demo uses its own database in `data/demo/`, so rehearsing never touches your
    .venv\Scripts\python scripts\demo.py prepare
    ```
 
-   This seeds the demo database from `data/raw` (every paper goes through the real checks), confirms the papers whose subject couldn't be read, builds the website in production mode, and saves a snapshot.
+   This seeds the demo database from `data/raw` (every paper goes through the real checks), confirms the papers whose subject couldn't be read, builds the website in production mode, and saves a snapshot. It ends with **14 live papers in 4 subjects** (BCS304 3, BCS501 5, BCS502 3, BCS515D 3) and **4 in review**: `BCS5011.pdf` (a re-saved copy of a model paper) and three second scans of BCS501 exams we already have.
+
+   It also makes **Desktop\Papers Please Demo**: one folder per subject with every paper renamed by session, and an **Upload during the demo** folder with the four files used below.
 3. Rehearse the whole flow below once.
 4. Reset to a clean state:
 
@@ -28,7 +32,7 @@ The demo uses its own database in `data/demo/`, so rehearsing never touches your
 .venv\Scripts\python scripts\demo.py start
 ```
 
-It prints *Starting…* and *Refreshing every page…* (about 20 seconds). Wait for the box that says **Papers Please demo is running**, then open these tabs:
+It prints *Starting…* and *Refreshing every page…* (about 30 seconds). Wait for the box that says **Papers Please demo is running**, then open these tabs:
 
 | Tab | URL |
 |---|---|
@@ -37,7 +41,7 @@ It prints *Starting…* and *Refreshing every page…* (about 20 seconds). Wait 
 | 3 | http://localhost:3000/upload |
 | 4 | http://localhost:3000/admin (sign in with the token printed in the box — `papers-please-demo` by default) |
 
-Keep **File Explorer** open at `data\demo\live-upload\`, which holds the four files you'll drag in.
+Keep **File Explorer** open at `Desktop\Papers Please Demo\Upload during the demo\`, which holds the four files you'll drag in (the same files are in `data\demo\live-upload\`).
 
 Tips: set the browser zoom so the whole subject page fits the projector (80–90%). Pick light or dark mode with the moon/sun button and stick with it.
 
@@ -59,10 +63,10 @@ VTU questions repeat, sometimes word for word, often reworded. Students go throu
 - Click **See all wordings**. **This is the NLP:** differently-worded questions from different papers and positions (Q1a in one paper, Q2b in another) grouped as one topic by a sentence-embedding model trained on paraphrases.
 - Tick **Mark studied** on the top 2–3 topics. The **coverage meter** and **marks ladder** fill: "study the top 3 to cover the module". It's saved in the browser, so no account is needed.
 - Switch to **Graph**: topics as dots, bigger means more repeats, coloured by module. Hover one, then click it to jump back to it in the list.
-- Click **Download cheat sheet**. It's a one-page A4 PDF, generated in advance so it downloads instantly. Mention the CSV question bank for teachers.
+- Click **Download cheat sheet**. It's a one-page A4 PDF, generated in advance so it downloads instantly. Mention the question bank for teachers: **Question bank (Excel)** opens with a sheet per module, filters and an About sheet.
 
 ### 4. Live upload (1½ min) — tab 3
-- Drag **`july 2025 BCS502.pdf`** in. Watch the steps: *Uploaded → Read safely → Confirm details*.
+- Drag **`JUL 2025 BCS502.pdf`** in. Watch the steps: *Uploaded → Read safely → Confirm details*.
   - While it reads (a scanned paper takes a little while), explain that the PDF is opened in a separate, locked-down process with time limits and no access to secrets. A malicious file can't touch the server.
 - The confirm card shows what was detected: BCS502, July 2025, and sample questions. Click **Looks right — submit**, then watch *Matched → Live*.
 - Go back to **tab 2** and refresh: BCS502 now says **4 papers**, and the rankings and ladder have updated.
@@ -71,16 +75,16 @@ VTU questions repeat, sometimes word for word, often reworded. Students go throu
 - Drag **`lab-notes.pdf`** in: rejected, "doesn't look like a VTU question paper".
 - Drag **`locked.pdf`** in: rejected, password-protected.
 - Drag the same file you uploaded in step 4 in again: "This exact file is already in the bank" (SHA-256 match, even if you rename it).
-- Drag **`DecJan_2025_-_Scheme  CN-1-2.pdf`** in and confirm it: it goes to **In review**. It's a different scan of the January 2025 exam, and each exam session can only have one live paper, so nothing gets counted twice.
+- Drag **`JAN 2025 BCS502 second scan.pdf`** in and confirm it: it goes to **In review**. It's a different scan of the January 2025 exam, and each exam session can only have one live paper, so nothing gets counted twice.
 
 ### 6. Moderation (1 min) — tab 4
-- **Needs review** shows that upload with its reason. The queue also already holds `DS JUNE JULY 25.pdf`, held because only 3 of 5 modules could be read from a faint scan. That's a good second example of what moderators catch.
+- **Needs review** shows that upload with its reason. The queue also already holds four papers from the seed: `BCS5011.pdf` ("100% of its questions match a live paper", a re-saved copy of a model paper) and three second scans of BCS501 exams we already have. Good examples of what moderators catch.
 - Click it: the **side-by-side comparison** matches the new paper's questions against the live paper's, with similarity scores.
 - Click **Reject** (or **Replace live copy** if this scan is clearer). Point out the other controls: block uploader, fix the detected subject/session, reprocess.
 
 ### 7. How it's built (1 min)
 - **Next.js** website: pages are pre-built and refresh the moment a subject changes. Everything interactive happens in the browser.
-- **FastAPI** server + our Python pipeline: pdfplumber / Tesseract OCR → parser → **Sentence-BERT on ONNX** → two-pass centroid clustering → recency-weighted scoring → phrase-based topic labels → cheat sheet.
+- **FastAPI** server + our Python pipeline: pdfplumber / Tesseract OCR → parser → **Sentence-BERT on ONNX** → average-linkage clustering → recency-weighted scoring → phrase-based topic labels → cheat sheet.
 - Heavy work runs on one background worker. Reads are precomputed snapshots, so browsing never waits on it.
 - Production setup on free tiers: **Vercel + Render + Supabase** (Postgres with row-level security, private storage, moderator login). A cron job keeps the free server awake.
 
@@ -90,8 +94,8 @@ VTU questions repeat, sometimes word for word, often reworded. Students go throu
 
 | Question | Answer |
 |---|---|
-| How do you know two questions are the same? | Every question is turned into a 384-number vector by `paraphrase-MiniLM-L6-v2`, a model trained on paraphrase pairs. Questions in the same module whose vectors are ≥ 0.70 similar (cosine) are grouped. A second pass reassigns everything against fresh group centres, so the order papers were added doesn't matter. |
-| Why not k-means? | You'd have to know the number of topics in advance, and DBSCAN's settings don't carry over between modules of different sizes. Centroid clustering needs one threshold. |
+| How do you know two questions are the same? | Every question is turned into a 384-number vector by `all-MiniLM-L12-v2`, a sentence-embedding model. Within a module, groups of questions are merged while their average similarity (cosine) stays at 0.675 or above. The model and that threshold were picked by testing 20 models on labelled VTU papers, choosing the threshold on three subjects and scoring on the fourth. |
+| Why not k-means? | You'd have to know the number of topics in advance, and DBSCAN's settings don't carry over between modules of different sizes. Average-linkage clustering needs one threshold, and the order papers were added doesn't matter. |
 | How is the ranking computed? | Each paper a topic appears in adds 0.85^(years ago), so recent papers count more. Expected marks = share of papers it appeared in × its usual marks. The ladder adds those up until the module's 20 marks are covered. |
 | What stops fake uploads? | A human check (Turnstile) and rate limits online; file checks; a sandbox; duplicate detection by hash, by exam session and by question overlap; structural checks; and a moderator queue for anything unusual. Original PDFs are never shown to anyone. |
 | Does it work on scanned papers? | Yes. Pages are rendered at 300 DPI, cleaned up (contrast and sharpening), OCR'd with Tesseract, and rebuilt into VTU's table columns. The parser tolerates OCR errors like "O22" for Q.2 and "BCSS02" for BCS502. |
@@ -109,4 +113,4 @@ VTU questions repeat, sometimes word for word, often reworded. Students go throu
 | A page shows old data | Refresh once. `start` refreshes every page at launch. |
 | A subject page breaks after typing its address by hand | Always use uppercase codes in the address bar (`/s/BCS502`, not `/s/bcs502`). Links inside the site are already uppercase. If it happens, stop, `reset`, `start`. |
 | You rehearsed and want a clean slate | Ctrl+C, then `demo.py reset`, then `demo.py start`. |
-| Everything is broken | `demo.py prepare` again (about 5 minutes). |
+| Everything is broken | `demo.py prepare` again (about 3 minutes). |

@@ -7,12 +7,16 @@ demo.py — run Papers Please locally for a demo, on its own database.
 
 Everything lives in data/demo/ — your normal dev data (data/app.db) is untouched.
 
-`prepare` seeds every paper in data/raw EXCEPT the ones held back for the live part
-of the demo, which it copies to data/demo/live-upload/ along with two junk files:
-  july 2025 BCS502.pdf     → upload it: goes live, BCS502 goes from 3 to 4 papers
-  DecJan_2025_…CN….pdf     → upload it: a re-scan of an exam we have → held for review
-  lab-notes.pdf            → upload it: not a question paper → rejected
-  locked.pdf               → upload it: password-protected → rejected
+`prepare` seeds every paper in data/raw EXCEPT the two held back for the live part of
+the demo, then builds the site in production mode. It also makes a folder on the Desktop,
+"Papers Please Demo", with every distinct paper renamed by subject and session:
+  BCS304\ BCS501\ BCS502\ BCS515D\   one folder per subject (re-uploading one shows duplicate detection)
+  Upload during the demo\
+    JUL 2025 BCS502.pdf              → goes live, BCS502 goes from 3 to 4 papers
+    JAN 2025 BCS502 second scan.pdf  → a re-scan of an exam we have → held for review
+    lab-notes.pdf                    → not a question paper → rejected
+    locked.pdf                       → password-protected → rejected
+The same four files are also in data/demo/live-upload/.
 """
 
 import argparse
@@ -43,7 +47,31 @@ API_PORT, WEB_PORT = 8000, 3000
 ADMIN_TOKEN = os.environ.get("DEMO_ADMIN_TOKEN", "papers-please-demo")
 REVALIDATE_SECRET = "papers-please-demo-revalidate"
 
+# Left out of the bank so they can be uploaded live during the demo
 HELD_BACK = ["july 2025 BCS502.pdf", "DecJan_2025_-_Scheme  CN-1-2.pdf"]
+DESKTOP = Path.home() / "Desktop" / "Papers Please Demo"
+
+# data/raw file -> (subject folder, clean name for the Desktop demo folder)
+DEMO_FILES = {
+    "BCS304.pdf": ("BCS304", "BCS304 model paper.pdf"),
+    "VTU Question Paper of BCS304 Data Structures and Applications Jan-Fab-2024 (1).pdf": ("BCS304", "JAN 2024 BCS304.pdf"),
+    "VTU Question Paper of BCS304 Data Structures and Applications Dec-2024 - Jan-2025_0001 (1).pdf": ("BCS304", "JAN 2025 BCS304.pdf"),
+    "BCS501-model-set-1-paper.pdf": ("BCS501", "BCS501 model paper 1.pdf"),
+    "BCS501-model-set-2-paper.pdf": ("BCS501", "BCS501 model paper 2.pdf"),
+    "BCS501-regular-paper.pdf": ("BCS501", "JAN 2025 BCS501.pdf"),
+    "JuneJuly_2025.pdf": ("BCS501", "JUL 2025 BCS501.pdf"),
+    "VTU Question Paper of BCS501 Software Engineering and Project Management  June - July-2025_0001 (1) (1).pdf": ("BCS501", "JUL 2025 BCS501 make-up exam.pdf"),
+    "VTU Question Paper of BCS501 Software Engineering and Project Management Dec-2025 -Jan-2026_0001 (2).pdf": ("BCS501", "JAN 2026 BCS501.pdf"),
+    "BCS502 MQP 1.pdf": ("BCS502", "BCS502 model paper 1.pdf"),
+    "MQP 2.pdf": ("BCS502", "BCS502 model paper 2.pdf"),
+    "JAN 2025 BCS502.pdf": ("BCS502", "JAN 2025 BCS502.pdf"),
+    "july 2025 BCS502.pdf": ("BCS502", "JUL 2025 BCS502.pdf"),
+    "DecJan_2025_-_Scheme  CN-1-2.pdf": ("BCS502", "JAN 2025 BCS502 second scan.pdf"),
+    "BCS515D.pdf": ("BCS515D", "BCS515D model paper.pdf"),
+    "BCS515D - VTU QP Dec 2024-Jan 2025.pdf": ("BCS515D", "JAN 2025 BCS515D.pdf"),
+    "DS JUNE JULY 25.pdf": ("BCS515D", "JUL 2025 BCS515D.pdf"),
+}
+
 
 # Scanned papers whose code isn't readable: confirmed as the CSE subjects for the demo
 CONFIRM = {
@@ -54,8 +82,19 @@ CONFIRM = {
 }
 
 
+def model_cached() -> bool:
+    """True once the embedding model (modules/embedder.py) has been downloaded."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        return isinstance(try_to_load_from_cache("sentence-transformers/all-MiniLM-L12-v2", "onnx/model.onnx"), str)
+    except Exception:
+        return False
+
+
 def api_env() -> dict:
     env = dict(os.environ)
+    if model_cached():   # never wait on the network; on a fresh machine the first prepare downloads it
+        env["HF_HUB_OFFLINE"] = "1"
     env.update({
         "DATABASE_URL": f"sqlite:///{DB.as_posix()}",
         "STORAGE_DIR": str(STORAGE),
@@ -67,7 +106,6 @@ def api_env() -> dict:
         "SITE_URL": f"http://localhost:{WEB_PORT}",
         "REVALIDATE_URL": f"http://localhost:{WEB_PORT}/api/revalidate",
         "REVALIDATE_SECRET": REVALIDATE_SECRET,
-        "HF_HUB_OFFLINE": "1",            # the embedding model is cached; never wait on the network
         "PYTHONIOENCODING": "utf-8",
     })
     return env
@@ -155,6 +193,23 @@ def make_junk_files() -> None:
     (LIVE / "locked.pdf").write_bytes(buf.getvalue())
 
 
+def make_desktop_folder() -> None:
+    """Every demo paper, one folder per subject, named the way the upload page likes."""
+    if DESKTOP.exists():
+        shutil.rmtree(DESKTOP)
+    for raw_name, (code, clean) in DEMO_FILES.items():
+        if (RAW / raw_name).exists():
+            (DESKTOP / code).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(RAW / raw_name, DESKTOP / code / clean)
+    upload = DESKTOP / "Upload during the demo"
+    upload.mkdir(parents=True)
+    for raw_name in HELD_BACK:
+        shutil.copy2(RAW / raw_name, upload / DEMO_FILES[raw_name][1])
+    for junk in ("lab-notes.pdf", "locked.pdf"):
+        shutil.copy2(LIVE / junk, upload / junk)
+    print(f"     demo papers copied to {DESKTOP}")
+
+
 def prepare() -> None:
     ensure_ports_free()
     if DEMO.exists():
@@ -166,12 +221,13 @@ def prepare() -> None:
         target = LIVE if pdf.name in HELD_BACK else DEMO / "seed"
         shutil.copy2(pdf, target / pdf.name)
     make_junk_files()
+    make_desktop_folder()
 
-    print("1/4  Seeding the demo database (every paper goes through the normal checks)…")
+    print("1/4  Seeding the demo database (every paper goes through the normal checks)…", flush=True)
     subprocess.run([PY, "-W", "ignore", "-m", "server.cli", "seed", str(DEMO / "seed")],
                    cwd=ROOT, env=api_env(), check=True)
 
-    print("2/4  Confirming papers whose subject or year couldn't be read…")
+    print("2/4  Confirming papers whose subject or year couldn't be read…", flush=True)
     run_py(f"""
 import json
 from sqlalchemy import select
@@ -193,7 +249,7 @@ for pid, name in waiting:
 print("     now:", ingest.counts())
 """)
 
-    print("3/4  Building the site in production mode (the API runs so pages are pre-rendered with data)…")
+    print("3/4  Building the site in production mode (the API runs so pages are pre-rendered with data)…", flush=True)
     # A previous build's cached API responses would otherwise be baked into the pages
     shutil.rmtree(ROOT / "web" / ".next", ignore_errors=True)
     api = start_api()
@@ -203,7 +259,7 @@ print("     now:", ingest.counts())
     finally:
         stop(api)
 
-    print("4/4  Saving a snapshot for `reset`…")
+    print("4/4  Saving a snapshot for `reset`…", flush=True)
     if SNAPSHOT.exists():
         shutil.rmtree(SNAPSHOT)
     SNAPSHOT.mkdir()
@@ -211,7 +267,8 @@ print("     now:", ingest.counts())
         shutil.copy2(f, SNAPSHOT / f.name)
     shutil.copytree(STORAGE, SNAPSHOT / "storage")
     shutil.rmtree(DEMO / "seed")
-    print(f"\nReady. Start it with:  {Path(PY).name} scripts/demo.py start")
+    py = Path(PY).relative_to(ROOT) if Path(PY).is_relative_to(ROOT) else Path(PY)
+    print(f"\nReady. Start it with:  {py} {Path('scripts', 'demo.py')} start")
 
 
 def reset() -> None:
@@ -258,19 +315,21 @@ def start() -> None:
         wait_for(f"http://localhost:{WEB_PORT}/how-it-works")
         print("Refreshing every page so nothing shows old data…", flush=True)
         refresh_site()
-        print(f"""
-  ┌───────────────────────────────────────────────────────────────┐
-  │  Papers Please demo is running                                 │
-  │                                                                │
-  │  Website      http://localhost:{WEB_PORT}                             │
-  │  Moderation   http://localhost:{WEB_PORT}/admin                       │
-  │               token: {ADMIN_TOKEN:<42}│
-  │  API docs     http://localhost:{API_PORT}/api/docs                    │
-  │                                                                │
-  │  Files for the live upload: data\\demo\\live-upload\\             │
-  │  Ctrl+C stops everything.                                      │
-  └───────────────────────────────────────────────────────────────┘
-""", flush=True)
+        lines = [
+            "Papers Please demo is running",
+            "",
+            f"Website      http://localhost:{WEB_PORT}",
+            f"Moderation   http://localhost:{WEB_PORT}/admin",
+            f"             token: {ADMIN_TOKEN}",
+            f"API docs     http://localhost:{API_PORT}/api/docs",
+            "",
+            "Files to upload live:",
+            r"Desktop\Papers Please Demo\Upload during the demo",
+            "Ctrl+C stops everything.",
+        ]
+        width = max(len(line) for line in lines) + 4
+        box = [f"  ┌{'─' * width}┐"] + [f"  │  {line:<{width - 2}}│" for line in lines] + [f"  └{'─' * width}┘"]
+        print("\n" + "\n".join(box) + "\n", flush=True)
         while api.poll() is None and web.poll() is None:
             time.sleep(1)
         print("A server exited — stopping the demo.")

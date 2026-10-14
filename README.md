@@ -19,7 +19,7 @@ A shared website where students find every past VTU paper for a subject already 
 - [Algorithms and Research](#algorithms-and-research)
 - [Tech Stack](#tech-stack)
 - [Key Imports That Power It](#key-imports-that-power-it)
-- [CSV Export for Teachers](#csv-export-for-teachers)
+- [Question Bank for Teachers](#question-bank-for-teachers)
 - [Data Model](#data-model)
 - [Problems We Faced and How We Solved Them](#problems-we-faced-and-how-we-solved-them)
 - [What We Learned](#what-we-learned)
@@ -59,7 +59,7 @@ Papers Please takes those same PDFs and turns them into actionable intelligence:
 3. An NLP model **detects when the same question appears across papers** — even when worded differently.
 4. Each topic gets a **priority score** based on how often it repeats and how recently.
 5. A **"Marks You Lock In" ladder** tells you: "Study these 3 topics and you statistically cover this module."
-6. Export a **PDF cheat sheet** for quick revision or a **CSV question bank** that teachers can use to build internal assessments.
+6. Export a **PDF cheat sheet** for quick revision or a **question bank** (CSV or Excel) that teachers can use to build internal assessments.
 
 The key insight: **exam preparation is an optimisation problem**. Given limited study time, which topics maximise your expected marks? This tool answers that with data.
 
@@ -262,23 +262,37 @@ Index("uq_papers_live_session", papers.c.session_key, unique=True,
 
 ---
 
-## CSV Export for Teachers
+## Question Bank for Teachers
 
-The CSV question bank is designed for **dual use**:
+Every subject page has two downloads with the same content: **Question bank (CSV)** and **Question bank (Excel)**. They hold one row per printed question, grouped by topic, sorted by module, then topic rank, then newest session first.
 
 ### For teachers setting internal assessments
-- Export the full question bank as a CSV, sorted by module and priority
-- Filter by module, marks range, or Bloom level to build a balanced paper
-- Every question has been verified to appear in real VTU papers — no guesswork about difficulty or scope
-- The frequency data shows which questions are "standard" vs niche
+- Open the Excel file: an **All questions** sheet, one sheet per module, and an **About** sheet that lists the papers covered and explains every column
+- Header rows stay frozen and every sheet has filters, so picking a module, topic, session or marks value takes one click
+- Rows of the same topic share a shade, and "How likely" is coloured the same way as on the website
+- Every question was printed in a real VTU paper, and the frequency shows which questions are "standard" and which are niche
+
+The CSV opens cleanly in Excel and Google Sheets on Windows (UTF-8 with a byte-order mark, CRLF line endings). A question that starts with `=`, `+`, `-` or `@` gets a leading apostrophe, so no spreadsheet treats it as a formula.
 
 ### For students using teacher-provided internals
 - If your teacher uses this tool to build internals, the questions come from the same pool this tool analyses
-- Study the high-frequency questions from the CSV and you are statistically preparing for both internals and the final exam
+- Study the high-frequency questions and you are preparing for both internals and the final exam
 
-### CSV columns
+### Columns
 | Column | Description |
 |--------|-------------|
+| Module | Module number (1-5) |
+| Topic rank | Rank within the module (1 = most worth studying) |
+| Topic | Short topic name |
+| How likely | Very likely (80%+ of papers), Likely (half or more), Occasional; "Only 1 paper" while a subject has one paper |
+| Asked in | e.g. "3 of 3 papers" |
+| Usual marks | Average marks the topic carried |
+| Session | The exam, e.g. "Jan 2025" or "Model paper" |
+| Question number | Where it was printed, e.g. Q3a |
+| Marks | Marks printed next to the question (blank if none) |
+| Question | The question as printed |
+
+--------|-------------|
 | Module | Module number (1-5) |
 | Priority Rank | Rank within the module by weighted score |
 | Topic Label | Short 3-5 word topic name |
@@ -444,7 +458,7 @@ On first use the embedding model (~90 MB) is downloaded from Hugging Face and ca
 ### Using the site
 
 1. **Home** — search by code or name (press `/`), or filter by branch and semester.
-2. **Subject page** — module tabs, topics ranked by how often they repeat, every wording with the paper and question number it came from, "Mark studied" ticks that fill your coverage meter, the marks ladder, and a topic graph. Download the one-page **cheat sheet** or the **CSV question bank**.
+2. **Subject page** — module tabs, topics ranked by how often they repeat, every wording with the paper and question number it came from, "Mark studied" ticks that fill your coverage meter, the marks ladder, and a topic graph. Download the one-page **cheat sheet** or the **question bank** (CSV or Excel).
 3. **Upload** — drop PDFs, watch them get checked and read, confirm the subject and exam session, and see them go live.
 4. **Moderation** — `/admin` (not linked anywhere). Sign in with the `ADMIN_TOKEN` locally, or a Supabase account listed in `ADMIN_EMAILS` in production.
 
