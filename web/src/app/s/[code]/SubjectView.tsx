@@ -90,6 +90,10 @@ export function SubjectView({ data }: { data: SubjectData }) {
               className="flex h-[52px] items-center rounded-xl border border-line bg-surface px-5 text-[15px] font-medium text-ink hover:border-line-strong">
               Question bank (CSV)
             </a>
+            <a href={`${PUBLIC_API}/api/subjects/${data.code}/questions.xlsx`}
+              className="flex h-[52px] items-center rounded-xl border border-line bg-surface px-5 text-[15px] font-medium text-ink hover:border-line-strong">
+              Question bank (Excel)
+            </a>
             <a href={`${PUBLIC_API}/api/subjects/${data.code}/cheatsheet.pdf`}
               className="flex h-[52px] items-center gap-2.5 rounded-xl bg-stamp px-[22px] text-base font-semibold text-white hover:opacity-90 dark:text-inverse">
               <DownloadIcon /> Download cheat sheet

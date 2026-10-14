@@ -195,7 +195,7 @@ def _exports(data: dict, ladders: dict) -> tuple[bytes, str]:
         exporter.generate_cheat_sheet(data["name"], data["code"], ladders, data["paperCount"], str(out),
                                       site_url=settings.site_url)
         pdf = out.read_bytes()
-    csv_text = exporter.generate_csv(data["name"], data["code"], ladders, data["paperCount"])
+    csv_text = exporter.generate_csv(data)
     return pdf, csv_text
 
 

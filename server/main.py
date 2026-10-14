@@ -6,7 +6,7 @@ main.py — the HTTP API.
     GET  /api/keepalive                        cron ping: keeps Render awake + Supabase active
     GET  /api/stats · /api/subjects · /api/catalog · /api/recent
     GET  /api/subjects/{code}                  everything the subject page needs
-    GET  /api/subjects/{code}/cheatsheet.pdf · /questions.csv
+    GET  /api/subjects/{code}/cheatsheet.pdf · /questions.csv · /questions.xlsx
   Uploads (anyone, rate-limited, bot-checked):
     POST /api/uploads                          → {id, token}
     GET  /api/uploads/{id}                     status, needs X-Upload-Token
@@ -29,7 +29,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, insert, select
 
-from modules import embedder
+from modules import embedder, exporter
 from server import catalog, ingest
 from server.auth import require_admin
 from server.config import settings
@@ -71,6 +71,9 @@ def client_ip(request: Request) -> str:
     if forwarded:
         return forwarded.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
+
+
+XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _cached(content: str | bytes, media_type: str, max_age: int = 60, **headers) -> Response:
@@ -174,11 +177,23 @@ def cheatsheet(code: str):
                    **{"Content-Disposition": f'attachment; filename="{code}_cheat_sheet.pdf"'})
 
 
+# The question bank is built from the snapshot JSON on each request, so every
+# subject gets the current format without a rebuild.
+
 @app.get("/api/subjects/{code}/questions.csv")
 def questions_csv(code: str):
     code = _code_or_404(code)
-    return _cached(_snapshot(code, subject_snapshots.c.questions_csv), "text/csv", max_age=300,
+    data = json.loads(_snapshot(code, subject_snapshots.c.data))
+    return _cached(exporter.generate_csv(data).encode("utf-8"), "text/csv; charset=utf-8", max_age=300,
                    **{"Content-Disposition": f'attachment; filename="{code}_question_bank.csv"'})
+
+
+@app.get("/api/subjects/{code}/questions.xlsx")
+def questions_xlsx(code: str):
+    code = _code_or_404(code)
+    data = json.loads(_snapshot(code, subject_snapshots.c.data))
+    return _cached(exporter.generate_xlsx(data), XLSX_TYPE, max_age=300,
+                   **{"Content-Disposition": f'attachment; filename="{code}_question_bank.xlsx"'})
 
 
 # ── Uploads ────────────────────────────────────────────────────────────────────

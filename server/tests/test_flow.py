@@ -33,7 +33,7 @@ def test_papers_publish_and_duplicates_go_to_review(client, drain):
     keys_before = {t["key"] for m in subject["modules"] for t in m["topics"]}
 
     assert client.get("/api/subjects/BCS502/cheatsheet.pdf").content.startswith(b"%PDF")
-    assert "Question Text" in client.get("/api/subjects/BCS502/questions.csv").text
+    assert "Question number" in client.get("/api/subjects/BCS502/questions.csv").text
     assert any(s["code"] == "BCS502" for s in client.get("/api/subjects").json())
 
     # A different scan of the January 2025 exam: same session → held for review

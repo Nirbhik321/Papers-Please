@@ -1,17 +1,18 @@
 """
-exporter.py — Generate exports: PDF cheat sheet and CSV question bank.
+exporter.py — Generate exports: PDF cheat sheet and the question bank (CSV and Excel).
 
 PDF: an A4 cheat sheet — the most repeated topics per module and the marks they cover.
-CSV: ordered question bank for teachers to build internal assessments.
+CSV / Excel: every printed question, grouped by topic, for teachers to build internal assessments.
 """
 
 import csv
 import io
+import re
 from datetime import date
 
 from fpdf import FPDF, XPos, YPos
 
-from modules.scorer import format_years, MAX_MODULE_MARKS
+from modules.scorer import MAX_MODULE_MARKS
 
 
 # ── ASCII sanitizer (Helvetica supports Latin-1 only) ─────────────────────────
@@ -223,42 +224,231 @@ def _draw_footer(pdf: FPDF, subject_code: str, site_url: str):
     pdf.cell(CONTENT_W / 2, 4, "Based on how often topics repeated - not a guarantee of what will appear.", align="R")
 
 
-# ── CSV question bank ─────────────────────────────────────────────────────────
+# ── Question bank (CSV and Excel) ─────────────────────────────────────────────
+#
+# Both are built from the snapshot JSON the website renders, so they always
+# match the subject page: one row per printed question, grouped by topic.
 
-def generate_csv(
-    subject_name: str,
-    subject_code: str,
-    module_ladders: dict[int, list[dict]],
-    total_papers: int,
-) -> str:
+BANK_COLUMNS = [
+    # (header, Excel width, what it means: shown on the About sheet)
+    ("Module", 9, "Module of the syllabus (1 to 5)."),
+    ("Topic rank", 8, "1 = the topic most worth studying in that module."),
+    ("Topic", 38, "Short name for the topic. Rows with the same topic asked the same thing."),
+    ("How likely", 13, "Very likely: in 80% or more of the papers. Likely: in half or more. Occasional: fewer."),
+    ("Asked in", 14, "How many of the analysed papers asked this topic."),
+    ("Usual marks", 9, "Average marks the topic carried when it was asked."),
+    ("Session", 13, "The exam the question comes from."),
+    ("Question number", 11, "Where it was printed in that paper, e.g. Q3a."),
+    ("Marks", 8, "Marks printed next to the question (blank if the paper did not print them)."),
+    ("Question", 90, "The question as it was printed."),
+]
+BANK_HEADERS = [c[0] for c in BANK_COLUMNS]
+
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _clean(text) -> str:
+    """One line of text, without control characters a spreadsheet would reject."""
+    return " ".join(_CONTROL_CHARS.sub(" ", str(text or "")).split())
+
+
+def likelihood(frequency_pct: float, total_papers: int) -> str:
+    """The same label the subject page shows for a topic."""
+    if total_papers <= 1:
+        return "Only 1 paper"
+    if frequency_pct >= 0.8:
+        return "Very likely"
+    if frequency_pct >= 0.5:
+        return "Likely"
+    return "Occasional"
+
+
+def session_labels(data: dict) -> dict:
+    """Session id → label, numbering repeats ("Model paper 1", "Model paper 2") so rows can be told apart."""
+    by_label: dict[str, list[int]] = {}
+    for s in data["sessions"]:
+        by_label.setdefault(s["label"], []).append(s["id"])
+    labels = {}
+    for text, ids in by_label.items():
+        for n, sid in enumerate(sorted(ids), start=1):   # lowest id = uploaded first
+            labels[sid] = f"{text} {n}" if len(ids) > 1 else text
+    return labels
+
+
+def question_rows(data: dict) -> list[dict]:
+    """One row per printed question: by module, topic rank, then newest session first."""
+    total = data["paperCount"]
+    order = {s["id"]: i for i, s in enumerate(data["sessions"])}   # newest first, like the site
+    label = session_labels(data)
+    rows = []
+    for module in sorted(data["modules"], key=lambda m: m["no"]):
+        for topic in sorted(module["topics"], key=lambda t: t["rank"]):
+            common = {
+                "Module": module["no"],
+                "Topic rank": topic["rank"],
+                "Topic": _clean(topic["label"]),
+                "How likely": likelihood(topic["frequencyPct"], total),
+                "Asked in": f"{topic['frequency']} of {total} paper{'s' if total != 1 else ''}",
+                "Usual marks": int(round(topic["avgMarks"])) if topic.get("avgMarks") else None,
+            }
+            wordings = sorted(topic["wordings"], key=lambda w: (order.get(w["session"], len(order)), w["where"]))
+            for w in wordings:
+                rows.append({
+                    **common,
+                    "Session": label.get(w["session"], ""),
+                    "Question number": w["where"],
+                    "Marks": w["marks"],
+                    "Question": _clean(w["text"]),
+                })
+    return rows
+
+
+def _csv_cell(value):
+    if value is None:
+        return ""
+    if isinstance(value, str) and value.startswith(_FORMULA_START):
+        return "'" + value   # never let a spreadsheet run a question as a formula
+    return value
+
+
+def generate_csv(data: dict) -> str:
     """
-    Generate a CSV question bank sorted by module then priority rank.
-
-    Returns the CSV content as a string (ready for st.download_button).
+    The question bank as CSV, ready for Excel and Google Sheets on Windows:
+    a UTF-8 byte-order mark (so Excel reads the text correctly), CRLF line
+    endings, one header row and no title row, so sorting and filters just work.
     """
     buf = io.StringIO()
-    writer = csv.writer(buf)
+    buf.write("﻿")
+    writer = csv.writer(buf, lineterminator="\r\n", quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(BANK_HEADERS)
+    for row in question_rows(data):
+        writer.writerow([_csv_cell(row[h]) for h in BANK_HEADERS])
+    return buf.getvalue()
 
-    writer.writerow([
-        "Module", "Priority Rank", "Topic Label", "Question Text",
-        "Avg Marks", "Times Repeated", "Total Papers", "Frequency %",
-        "Years Seen", "Expected Marks", "Full Coverage",
-    ])
 
-    for module_no in sorted(module_ladders.keys()):
-        for step in module_ladders[module_no]:
-            writer.writerow([
-                module_no,
-                step["rank"],
-                step.get("topic_label") or "",
-                step["representative_text"],
-                int(step.get("avg_marks") or 0),
-                step["frequency"],
-                total_papers,
-                f"{step['frequency_pct'] * 100:.0f}%",
-                format_years(step.get("years", [])),
-                f"{step.get('expected_marks', 0):.1f}",
-                "YES" if step["full_coverage"] else "",
-            ])
+# Excel colours (hex, no #): the same palette as the website and the cheat sheet
+_XL_INK, _XL_INK_2, _XL_LINE, _XL_BAND = "1B2233", "4A5163", "DDD7C9", "F4F1EA"
+_XL_LIKELY = {   # label → (fill, font), the site's hi / mid / lo pills
+    "Very likely": ("F6E3E0", "8E2A20"),
+    "Likely": ("F8E9D4", "7A4210"),
+    "Occasional": ("ECE8DE", "3F4556"),
+    "Only 1 paper": ("ECE8DE", "3F4556"),
+}
+_XL_CENTRED = {"Module", "Topic rank", "Usual marks", "Question number", "Marks"}
 
+
+def _day(iso) -> str:
+    """"2026-10-14T10:00:00+00:00" → "14 Oct 2026" (the same format as "Generated")."""
+    try:
+        return date.fromisoformat(str(iso)[:10]).strftime("%d %b %Y")
+    except ValueError:
+        return ""
+
+
+def generate_xlsx(data: dict) -> bytes:
+    """
+    The question bank as a formatted Excel workbook: an "All questions" sheet,
+    one sheet per module and a short "About" sheet explaining the columns.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    rows = question_rows(data)
+    wb = Workbook()
+    wb.properties.title = f"{data['code']} {data['name']} - question bank"
+    wb.properties.creator = "Papers Please"
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor=_XL_INK)
+    band_fill = PatternFill("solid", fgColor=_XL_BAND)
+    rule = Border(bottom=Side(style="thin", color=_XL_LINE))
+    top_left = Alignment(vertical="top")
+    wrap = Alignment(vertical="top", wrap_text=True)
+    centre = Alignment(vertical="top", horizontal="center")
+
+    def question_sheet(ws, sheet_rows: list[dict], columns: list[tuple]):
+        headers = [c[0] for c in columns]
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font, cell.fill = header_font, header_fill
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        ws.row_dimensions[1].height = 30
+
+        banded, last_topic = True, None
+        for r, row in enumerate(sheet_rows, start=2):
+            topic = (row["Module"], row["Topic rank"])
+            if topic != last_topic:          # alternate the fill per topic
+                banded, last_topic = not banded, topic
+            for c, header in enumerate(headers, start=1):
+                value = row[header]
+                cell = ws.cell(row=r, column=c, value=value)
+                if isinstance(value, str):
+                    cell.data_type = "s"     # text stays text, even when it starts with "="
+                cell.border = rule
+                if header in ("Question", "Topic"):
+                    cell.alignment = wrap
+                else:
+                    cell.alignment = centre if header in _XL_CENTRED else top_left
+                if banded:
+                    cell.fill = band_fill
+                if header == "How likely" and value in _XL_LIKELY:
+                    fill, font = _XL_LIKELY[value]
+                    cell.fill = PatternFill("solid", fgColor=fill)
+                    cell.font = Font(bold=True, color=font)
+                elif header == "Topic":
+                    cell.font = Font(bold=True, color=_XL_INK)
+
+        for c, (_, width, _) in enumerate(columns, start=1):
+            ws.column_dimensions[get_column_letter(c)].width = width
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(columns))}{max(len(sheet_rows) + 1, 2)}"
+        ws.print_title_rows = "1:1"
+        ws.page_setup.orientation = "landscape"
+        ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+    ws = wb.active
+    ws.title = "All questions"
+    question_sheet(ws, rows, BANK_COLUMNS)
+    without_module = [c for c in BANK_COLUMNS if c[0] != "Module"]
+    for module_no in sorted({r["Module"] for r in rows}):
+        question_sheet(wb.create_sheet(f"Module {module_no}"),
+                       [r for r in rows if r["Module"] == module_no], without_module)
+
+    # About: what the workbook covers and what each column means
+    ws = wb.create_sheet("About")
+    ws.column_dimensions["A"].width, ws.column_dimensions["B"].width = 20, 90
+
+    def about_row(key, value, bold_key=True):
+        ws.append([key, value])
+        if bold_key:
+            ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
+        ws.cell(row=ws.max_row, column=2).alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+
+    ws.append([f"{data['code']}  {_clean(data['name'])}"])
+    ws["A1"].font = Font(bold=True, size=16, color=_XL_INK)
+    ws.append(["Question bank from past VTU papers, grouped by topic."])
+    ws["A2"].font = Font(italic=True, color=_XL_INK_2)
+    ws.append([])
+    about_row("Subject", f"{data['code']} - {_clean(data['name'])}")
+    about_row("Papers analysed", data["paperCount"])
+    labels = session_labels(data)
+    about_row("Sessions covered", ", ".join(labels[s["id"]] for s in data["sessions"]))
+    about_row("Questions", len(rows))
+    about_row("Data updated", _day(data.get("updatedAt")))
+    about_row("Generated", date.today().strftime("%d %b %Y"))
+    ws.append([])
+    ws.append(["Column", "What it means"])
+    for cell in ws[ws.max_row]:
+        cell.font, cell.fill = header_font, header_fill
+    for header, _, meaning in BANK_COLUMNS:
+        about_row(header, meaning)
+    ws.append([])
+    about_row("Note", "Based on how often topics repeated in past papers - not a guarantee of what will appear. "
+                      "Use the filter arrows on each sheet to pick a module, topic or session.")
+
+    buf = io.BytesIO()
+    wb.save(buf)
     return buf.getvalue()
