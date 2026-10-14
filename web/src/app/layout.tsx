@@ -1,12 +1,19 @@
 import type { Metadata } from "next";
-import { Fraunces, IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import { SiteHeader } from "@/components/SiteHeader";
 import { themeScript } from "@/components/ThemeToggle";
 import "./globals.css";
 
-const fraunces = Fraunces({ variable: "--font-fraunces", subsets: ["latin"], weight: ["500", "600"] });
-const plexSans = IBM_Plex_Sans({ variable: "--font-plex-sans", subsets: ["latin"], weight: ["400", "500", "600"] });
-const plexMono = IBM_Plex_Mono({ variable: "--font-plex-mono", subsets: ["latin"], weight: ["400", "500"] });
+// The Google Fonts files (latin subset) live in fonts/, so a build never needs the network
+const fraunces = localFont({ variable: "--font-fraunces", src: "./fonts/Fraunces-latin-var.woff2", weight: "500 600" });
+const plexSans = localFont({ variable: "--font-plex-sans", src: "./fonts/IBMPlexSans-latin-var.woff2", weight: "400 600" });
+const plexMono = localFont({
+  variable: "--font-plex-mono",
+  src: [
+    { path: "./fonts/IBMPlexMono-400-latin.woff2", weight: "400" },
+    { path: "./fonts/IBMPlexMono-500-latin.woff2", weight: "500" },
+  ],
+});
 
 export const metadata: Metadata = {
   title: { default: "Papers Please — VTU questions that keep coming back", template: "%s · Papers Please" },
